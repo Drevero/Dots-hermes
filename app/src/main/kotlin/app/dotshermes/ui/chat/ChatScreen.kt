@@ -1,0 +1,583 @@
+package app.dotshermes.ui.chat
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import app.dotshermes.data.model.AgentActivity
+import app.dotshermes.data.model.ConnectionState
+import app.dotshermes.ui.ChatUiState
+import app.dotshermes.ui.DotAppearance
+import app.dotshermes.ui.components.CircleIconButton
+import app.dotshermes.ui.dot.ClayDot
+import app.dotshermes.ui.dot.DotMood
+import app.dotshermes.ui.theme.Ink
+import app.dotshermes.ui.theme.LocalDotPalette
+import app.dotshermes.voice.Playback
+import app.dotshermes.data.model.MAIN_CHAT
+import app.dotshermes.ui.dots.HeroDot
+import app.dotshermes.ui.dots.HeroDots
+import androidx.compose.material3.CircularProgressIndicator
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.ui.graphics.vector.ImageVector
+import app.dotshermes.data.model.ScreenState
+import app.dotshermes.data.model.ToolKind
+import app.dotshermes.voice.RecordingState
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.stringArrayResource
+import app.dotshermes.R
+import app.dotshermes.ui.dayLabel
+
+fun AgentActivity.toMood(): DotMood = when (this) {
+    AgentActivity.Idle -> DotMood.Idle
+    AgentActivity.Thinking, is AgentActivity.Working -> DotMood.Thinking
+    AgentActivity.Typing -> DotMood.Talking
+    AgentActivity.Reacting -> DotMood.Happy
+}
+
+@Composable
+private fun AgentActivity.statusLabel(): String = when (this) {
+    AgentActivity.Idle, AgentActivity.Reacting -> stringResource(R.string.status_online)
+    AgentActivity.Thinking -> stringResource(R.string.status_thinking)
+    AgentActivity.Typing -> stringResource(R.string.status_typing)
+    is AgentActivity.Working -> label
+}
+
+/** Micro et lecteur : état et actions, regroupés pour ne pas alourdir la signature de l'écran. */
+class VoiceControls(
+    val recording: RecordingState?,
+    val playback: Playback,
+    val onStartRecording: () -> Boolean,
+    val onSendRecording: () -> Unit,
+    val onCancelRecording: () -> Unit,
+    val onToggle: (messageId: String) -> Unit,
+    val onSeek: (messageId: String, fraction: Float) -> Unit,
+)
+
+/** La conversation unique avec l'agent. */
+@Composable
+fun ChatScreen(
+    state: ChatUiState,
+    connection: ConnectionState.Connected?,
+    appearance: DotAppearance,
+    onSend: (String) -> Unit,
+    onReact: (messageId: String, emoji: String) -> Unit,
+    onApproval: (messageId: String, approved: Boolean) -> Unit,
+    onClarify: (messageId: String, response: String) -> Unit,
+    onOpenAgent: () -> Unit,
+    voice: VoiceControls,
+    onOpenActivity: () -> Unit = {},
+    onOpenScreen: () -> Unit = {},
+    screen: ScreenState = ScreenState(),
+    browsing: Boolean = false,
+    onLoadOlder: () -> Unit = {},
+    onTakeover: () -> Unit = {},
+    /** Messages non lus dans les autres dots : pastille sur le bouton qui ouvre la fiche des dots. */
+    otherUnread: Int = 0,
+    /** Tous les dots dans l'ordre : le suivant se devine derrière la mascotte, un glissement y passe. */
+    heroDots: List<HeroDot> = emptyList(),
+    activeChat: String = MAIN_CHAT,
+    onSwitchDot: (String) -> Unit = {},
+    onSendFile: (uri: Uri, caption: String, onTooBig: () -> Unit) -> Unit = { _, _, _ -> },
+    attachments: AttachmentControls? = null,
+) {
+    val palette = LocalDotPalette.current
+    val context = LocalContext.current
+    var draft by rememberSaveable { mutableStateOf("") }
+    var suggestionsOpen by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // Liste inversée : l'index 0 est le plus récent. On ne ramène en bas que si l'utilisateur y est déjà.
+    val newestKey = state.rows.firstOrNull()?.key
+    LaunchedEffect(newestKey) {
+        if (listState.firstVisibleItemIndex <= 3) listState.animateScrollToItem(0)
+    }
+
+    // Seul le sur-message le plus récent porte l'aperçu de l'écran : c'est lui qui correspond au navigateur actuel.
+    val newestToolsKey = state.rows.firstOrNull { it is ChatRow.Tools }?.key
+
+    fun attach(uri: Uri) {
+        onSendFile(uri, draft) { Toast.makeText(context, R.string.chat_file_too_big, Toast.LENGTH_SHORT).show() }
+        draft = ""
+        suggestionsOpen = false
+    }
+
+    fun submit(text: String) {
+        onSend(text)
+        draft = ""
+        suggestionsOpen = false
+    }
+
+    // Hauteur mesurée de l'en-tête flottant : le fil commence juste dessous, puis défile sous son dégradé.
+    var headerHeightPx by remember { mutableIntStateOf(0) }
+    val headerHeight = with(LocalDensity.current) { headerHeightPx.toDp() }
+
+    Box(Modifier.fillMaxSize().background(Ink.Surface)) {
+        Box(Modifier.fillMaxWidth().height(320.dp).background(Brush.verticalGradient(listOf(palette.light, Ink.Surface))))
+        Column(Modifier.fillMaxSize().imePadding()) {
+          Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                state = listState,
+                reverseLayout = true,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = headerHeight, bottom = 12.dp),
+            ) {
+                items(state.rows, key = { it.key }, contentType = { it::class }) { row ->
+                    Box(Modifier.animateItem().fillMaxWidth()) {
+                        when (row) {
+                            is ChatRow.Day -> DaySeparator(dayLabel(row))
+                            is ChatRow.Bubble -> MessageRow(
+                                row = row,
+                                onReact = { emoji -> onReact(row.message.id, emoji) },
+                                onApproval = { approved -> onApproval(row.message.id, approved) },
+                                onClarify = { response -> onClarify(row.message.id, response) },
+                                playback = voice.playback,
+                                onToggleVoice = { voice.onToggle(row.message.id) },
+                                onSeekVoice = { fraction -> voice.onSeek(row.message.id, fraction) },
+                                attachments = attachments,
+                                onTakeover = onTakeover,
+                            )
+                            is ChatRow.Tools -> ToolTrail(
+                                row,
+                                screen = screen.takeIf { row.key == newestToolsKey && row.calls.any { it.kind == ToolKind.Web } },
+                                onOpenScreen = onOpenScreen,
+                            )
+                            ChatRow.Typing -> TypingBubble()
+                            is ChatRow.Older -> OlderMessages(row.hasMore, state.messageCount, onLoadOlder)
+                        }
+                    }
+                }
+            }
+            ChatHeader(
+                state.agentName, state.activity, connection, appearance, onOpenAgent,
+                Modifier.onSizeChanged { headerHeightPx = it.height },
+                onOpenActivity = onOpenActivity,
+                otherUnread = otherUnread,
+                heroDots = heroDots,
+                activeChat = activeChat,
+                onSwitchDot = onSwitchDot,
+            )
+            BrowsingPill(
+                visible = browsing && screen.hasFrame,
+                agentName = state.agentName,
+                onClick = onOpenScreen,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+            )
+          }
+            Composer(
+                draft = draft,
+                onDraftChange = { draft = it },
+                agentName = state.agentName,
+                suggestionsOpen = suggestionsOpen,
+                onToggleSuggestions = { suggestionsOpen = !suggestionsOpen },
+                onSend = ::submit,
+                voice = voice,
+                onAttach = ::attach,
+            )
+        }
+    }
+}
+
+/** En-tête Dots : le personnage au centre, vivant, avec son nom et ce qu'il est en train de faire. */
+@Composable
+private fun ChatHeader(
+    name: String,
+    activity: AgentActivity,
+    connection: ConnectionState.Connected?,
+    appearance: DotAppearance,
+    onOpenAgent: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenActivity: () -> Unit = {},
+    otherUnread: Int = 0,
+    heroDots: List<HeroDot> = emptyList(),
+    activeChat: String = MAIN_CHAT,
+    onSwitchDot: (String) -> Unit = {},
+) {
+    val palette = LocalDotPalette.current
+    Column(
+        modifier
+            .fillMaxWidth()
+            // Blanc franc sous la barre d'état, qui s'évanouit vers le bas : les messages passent dessous.
+            .background(Brush.verticalGradient(0f to Ink.Surface, 0.7f to Ink.Surface.copy(alpha = 0.92f), 1f to Ink.Surface.copy(alpha = 0f)))
+            .statusBarsPadding()
+            .padding(top = 4.dp, bottom = 18.dp),
+    ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { ConnectionPill(connection) }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .clickable(onClick = onOpenAgent)
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+        ) {
+            if (heroDots.size > 1) {
+                HeroDots(heroDots, activeChat, activity.toMood(), 68.dp, onSwitch = onSwitchDot)
+            } else {
+                ClayDot(palette, Modifier.size(68.dp), mood = activity.toMood(), accessory = appearance.accessory, species = appearance.species)
+            }
+            Text(name, style = MaterialTheme.typography.titleSmall, color = Ink.Primary)
+            AnimatedContent(
+                targetState = activity.statusLabel(),
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
+                label = "status",
+            ) { label ->
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (activity == AgentActivity.Idle || activity == AgentActivity.Reacting) Ink.Secondary else palette.deep,
+                    maxLines = 1,
+                )
+            }
+        }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            CircleIconButton(Icons.Rounded.Insights, stringResource(R.string.activity_title), onOpenActivity, container = Ink.Raised.copy(alpha = 0.85f))
+            Box {
+                CircleIconButton(Icons.Rounded.MoreHoriz, stringResource(R.string.cd_my_dots), onOpenAgent, container = Ink.Raised.copy(alpha = 0.85f))
+                if (otherUnread > 0) {
+                    Box(Modifier.align(Alignment.TopEnd).size(10.dp).background(Ink.Danger, CircleShape).border(1.5.dp, Ink.Surface, CircleShape))
+                }
+            }
+        }
+    }
+    }
+}
+
+@Composable
+private fun ConnectionPill(connection: ConnectionState.Connected?) {
+    val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1_200), RepeatMode.Reverse),
+        label = "pulse-alpha",
+    )
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Ink.Raised.copy(alpha = 0.85f))
+            .border(0.5.dp, Ink.Separator, CircleShape)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val online = connection?.online == true
+        Box(Modifier.size(7.dp).graphicsLayer { alpha = pulse }.background(if (online) Ink.Success else Ink.Warning, CircleShape))
+        Spacer(Modifier.width(6.dp))
+        val label = when {
+            connection == null -> stringResource(R.string.conn_offline)
+            !connection.online -> stringResource(R.string.conn_reconnecting)
+            connection.demo -> stringResource(R.string.conn_demo)
+            else -> stringResource(R.string.latency_ms, connection.latencyMs)
+        }
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Ink.Primary)
+    }
+}
+
+@Composable
+private fun DaySeparator(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = Ink.Secondary,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun Composer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    agentName: String,
+    suggestionsOpen: Boolean,
+    onToggleSuggestions: () -> Unit,
+    onSend: (String) -> Unit,
+    voice: VoiceControls,
+    onAttach: (Uri) -> Unit,
+) {
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(onAttach) }
+    val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onAttach) }
+    val palette = LocalDotPalette.current
+    val context = LocalContext.current
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) voice.onStartRecording()
+    }
+    fun startRecording() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            voice.onStartRecording()
+        } else {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    val plusRotation by animateFloatAsState(if (suggestionsOpen) 45f else 0f, label = "plus-rotation")
+    val suggestions = stringArrayResource(R.array.chat_suggestions)
+
+    Column(Modifier.fillMaxWidth().background(Ink.Surface).navigationBarsPadding()) {
+        AnimatedVisibility(
+            visible = suggestionsOpen,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 10.dp),
+            ) {
+                item {
+                    AttachChip(Icons.Rounded.PhotoLibrary, stringResource(R.string.attach_photo)) {
+                        pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    }
+                }
+                item { AttachChip(Icons.Rounded.AttachFile, stringResource(R.string.attach_file)) { pickDocument.launch(arrayOf("*/*")) } }
+                items(suggestions) { suggestion ->
+                    Text(
+                        suggestion,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.deep,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(palette.light)
+                            .clickable { onSend(suggestion) }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+        // Pendant l'enregistrement, la barre de vocal remplace le champ de saisie.
+        voice.recording?.let { recording ->
+            RecordingBar(recording, onCancel = voice.onCancelRecording, onSend = voice.onSendRecording)
+            return@Column
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            CircleIconButton(
+                icon = Icons.Rounded.Add,
+                contentDescription = stringResource(R.string.cd_suggestions),
+                onClick = onToggleSuggestions,
+                size = 40.dp,
+                modifier = Modifier.graphicsLayer { rotationZ = plusRotation },
+            )
+            Spacer(Modifier.width(8.dp))
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Ink.Fill)
+                    .padding(start = 16.dp, end = 4.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Box(Modifier.weight(1f).padding(vertical = 9.dp)) {
+                    if (draft.isEmpty()) {
+                        Text(stringResource(R.string.composer_placeholder, agentName), style = MaterialTheme.typography.bodyLarge, color = Ink.Secondary)
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraftChange,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink.Primary),
+                        cursorBrush = SolidColor(palette.base),
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Box(Modifier.padding(bottom = 4.dp).size(32.dp), contentAlignment = Alignment.Center) {
+                    AnimatedContent(
+                        targetState = draft.isNotBlank(),
+                        transitionSpec = { (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith (scaleOut(targetScale = 0.6f) + fadeOut()) },
+                        label = "send-or-mic",
+                    ) { canSend ->
+                        if (canSend) {
+                            Box(
+                                Modifier.size(32.dp).clip(CircleShape).background(palette.base).clickable { onSend(draft) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Rounded.ArrowUpward, stringResource(R.string.cd_send), tint = palette.onBase, modifier = Modifier.size(18.dp))
+                            }
+                        } else {
+                            Box(
+                                Modifier.size(32.dp).clip(CircleShape).clickable(onClick = ::startRecording),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Rounded.Mic, stringResource(R.string.cd_record_voice), tint = palette.deep, modifier = Modifier.size(22.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Enregistrement en cours : corbeille, point rouge et chrono, onde en direct, envoi. */
+@Composable
+private fun RecordingBar(recording: RecordingState, onCancel: () -> Unit, onSend: () -> Unit) {
+    val palette = LocalDotPalette.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircleIconButton(icon = Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.cd_cancel_voice), onClick = onCancel, size = 40.dp)
+        Spacer(Modifier.width(8.dp))
+        Row(
+            modifier = Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(20.dp)).background(Ink.Fill).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RecordingDot()
+            Spacer(Modifier.width(8.dp))
+            Text(formatClock(recording.elapsedMs), style = MaterialTheme.typography.labelLarge, color = Ink.Primary)
+            Spacer(Modifier.width(12.dp))
+            // Les derniers niveaux défilent de droite à gauche, la barre la plus récente au bord.
+            Waveform(
+                bars = List((48 - recording.levels.size).coerceAtLeast(0)) { 0.06f } + recording.levels,
+                progress = 1f,
+                played = palette.base,
+                pending = palette.base,
+                modifier = Modifier.weight(1f).height(24.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(palette.base).clickable(onClick = onSend),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.ArrowUpward, stringResource(R.string.cd_send_voice), tint = palette.onBase, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/** Pièce jointe : pastille au début des suggestions du bouton « + ». */
+@Composable
+private fun AttachChip(icon: ImageVector, label: String, onClick: () -> Unit) {
+    val palette = LocalDotPalette.current
+    Row(
+        Modifier.clip(CircleShape).background(palette.base).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = palette.onBase, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = palette.onBase)
+    }
+}
+
+/** Pastille flottante tant que l'agent navigue : un tap ouvre son écran en direct. */
+@Composable
+private fun BrowsingPill(visible: Boolean, agentName: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val palette = LocalDotPalette.current
+    AnimatedVisibility(visible, modifier = modifier, enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f)) {
+        Row(
+            Modifier.clip(CircleShape).background(Ink.Raised).border(0.5.dp, Ink.Separator, CircleShape)
+                .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RecordingDot()
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Rounded.Language, null, tint = palette.deep, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.chat_browsing, agentName), style = MaterialTheme.typography.labelLarge, color = Ink.Primary)
+        }
+    }
+}
+
+/**
+ * Tête du fil. Tant qu'il reste de l'historique, sa simple apparition à l'écran demande la page
+ * précédente ; la clé sur le nombre de messages relance la demande après chaque page reçue.
+ */
+@Composable
+private fun OlderMessages(hasMore: Boolean, messageCount: Int, onLoadOlder: () -> Unit) {
+    val palette = LocalDotPalette.current
+    if (hasMore) {
+        LaunchedEffect(messageCount) { onLoadOlder() }
+        Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(18.dp), color = palette.base, strokeWidth = 2.dp)
+        }
+    } else {
+        Text(
+            stringResource(R.string.chat_start),
+            style = MaterialTheme.typography.labelSmall,
+            color = Ink.Tertiary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+        )
+    }
+}

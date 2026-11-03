@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dossiers que l'app partage en lecture avec la visionneuse choisie (FileProvider). -->
+<paths>
+    <files-path name="attachments" path="attachments/" />
+    <files-path name="voice" path="voice/" />
+    <cache-path name="downloads" path="voice/" />
+</paths>

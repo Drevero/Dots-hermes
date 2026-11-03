@@ -31,3 +31,12 @@ google-services.json
 
 # Android Profiling
 *.hprof
+/design
+
+# Kotlin compiler and Python caches
+.kotlin/
+__pycache__/
+
+# Local tooling and private notes (server address, SSH access)
+.claude/
+docs/notes-developpement.md

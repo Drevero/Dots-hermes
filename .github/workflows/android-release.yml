@@ -1,0 +1,109 @@
+# Construit l'APK et publie une release GitHub à chaque push sur main (ou à la demande).
+#
+# Secrets facultatifs (Settings → Secrets and variables → Actions) :
+#   GOOGLE_SERVICES_JSON     contenu de app/google-services.json, encodé en base64 → active le push
+#   SIGNING_KEYSTORE_BASE64  keystore de publication (.jks) en base64 ─┐
+#   SIGNING_STORE_PASSWORD   mot de passe du keystore                    │ sans eux, l'APK est signé
+#   SIGNING_KEY_ALIAS        alias de la clé                             │ avec une clé de debug
+#   SIGNING_KEY_PASSWORD     mot de passe de la clé                     ─┘
+# Variable facultative : DEFAULT_GATEWAY_URL (adresse pré-remplie sur l'écran d'appairage).
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "design/**"
+      - "assets/**"
+      - "server/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write # créer le tag et la release
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version
+        id: version
+        run: |
+          base=$(grep '^appVersionName=' gradle.properties | cut -d= -f2)
+          # versionCode doit toujours croître : 100 + numéro d'exécution du workflow.
+          echo "VERSION_NAME=${base}.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((100 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+          echo "name=${base}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Firebase (push notifications, optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+            echo "PUSH_STATUS=enabled (Firebase)" >> "$GITHUB_ENV"
+          else
+            echo "PUSH_STATUS=disabled (no GOOGLE_SERVICES_JSON secret)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Signing key (optional)
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_STATUS=release key" >> "$GITHUB_ENV"
+          else
+            echo "SIGNING_STATUS=debug key (add the SIGNING_* secrets for a stable signature)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Tests and release build
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          DEFAULT_GATEWAY_URL: ${{ vars.DEFAULT_GATEWAY_URL }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Name the APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/hermes-${VERSION_NAME}.apk"
+          (cd dist && sha256sum "hermes-${VERSION_NAME}.apk" > "hermes-${VERSION_NAME}.apk.sha256")
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: Hermes ${{ steps.version.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: |
+            dist/*.apk
+            dist/*.sha256
+          body: |
+            Android APK built from `${{ github.sha }}`.
+
+            - Push notifications: ${{ env.PUSH_STATUS }}
+            - Signature: ${{ env.SIGNING_STATUS }}
+
+            Install it on your phone, then pair it with your gateway (see the README).

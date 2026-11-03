@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Textes de l'interface en français. Mêmes clés que values/strings.xml (anglais, langue par défaut). -->
+<resources>
+    <!-- Profil de l'agent -->
+    <string name="profile_tagline_gateway">Agent personnel · gateway Hermes</string>
+    <string name="profile_tagline_demo">Agent personnel · serveur distant</string>
+
+    <!-- Connexion au gateway -->
+    <string name="gateway_connecting">Connexion au gateway…</string>
+    <string name="gateway_syncing">Synchronisation de la conversation…</string>
+    <string name="gateway_error_invalid_url">Adresse invalide : elle doit commencer par wss://</string>
+    <string name="gateway_error_timeout">Le gateway ne répond pas.</string>
+    <string name="gateway_error_cancelled">Connexion annulée.</string>
+    <string name="gateway_error_token_refused">Jeton refusé par le gateway.</string>
+    <string name="gateway_error_not_found">Aucun gateway Dots à cette adresse.</string>
+    <string name="gateway_error_unreachable">Gateway injoignable (%1$s).</string>
+    <string name="gateway_error_closed">Connexion fermée par le gateway.</string>
+
+    <!-- Libellés des outils de l'agent -->
+    <string name="tool_terminal">Exécute une commande</string>
+    <string name="tool_process">Suit un processus</string>
+    <string name="tool_read_file">Lit un fichier</string>
+    <string name="tool_search_files">Cherche dans les fichiers</string>
+    <string name="tool_write_file">Écrit un fichier</string>
+    <string name="tool_patch">Modifie un fichier</string>
+    <string name="tool_web_search">Cherche sur le web</string>
+    <string name="tool_web_extract">Lit une page web</string>
+    <string name="tool_skill_view">Lit la skill</string>
+    <string name="tool_skills_list">Parcourt ses skills</string>
+    <string name="tool_skill_manage">Met à jour une skill</string>
+    <string name="tool_memory">Mémorise</string>
+    <string name="tool_session_search">Fouille ses souvenirs</string>
+    <string name="tool_execute_code">Exécute du code</string>
+    <string name="tool_delegate_task">Délègue à un sous-agent</string>
+    <string name="tool_todo">Met à jour son plan</string>
+    <string name="tool_cronjob">Gère une tâche planifiée</string>
+    <string name="tool_vision_analyze">Analyse une image</string>
+    <string name="tool_image_generate">Génère une image</string>
+    <string name="tool_text_to_speech">Synthétise la voix</string>
+    <string name="tool_send_message">Envoie un message</string>
+    <string name="tool_tool_search">Cherche un outil</string>
+    <string name="tool_tool_describe">Consulte un outil</string>
+    <string name="tool_browser">Navigue sur le web</string>
+    <string name="tool_browser_request_takeover">Te demande de prendre la main</string>
+
+    <!-- Mode démo : connexion simulée -->
+    <string name="demo_mode">Mode démo</string>
+    <string name="demo_connect_step_1">Recherche du gateway…</string>
+    <string name="demo_connect_step_2">Poignée de main sécurisée…</string>
+    <string name="demo_connect_step_3">Appairage avec Hermes…</string>
+    <string name="demo_greeting">Re ! Le gateway est connecté, je suis là 👋</string>
+    <string name="demo_voice_transcript">(démo) Vocal de %1$d s bien reçu</string>
+
+    <!-- Mode démo : tâches planifiées -->
+    <string name="demo_cron_mail_name">Tri des mails du matin</string>
+    <string name="demo_cron_mail_prompt">Trie la boîte de réception et résume l\'important.</string>
+    <string name="demo_cron_backup_name">Veille sauvegardes serveur</string>
+    <string name="demo_cron_backup_prompt">Vérifie que la sauvegarde nocturne a tourné.</string>
+
+    <!-- Mode démo : historique de départ -->
+    <string name="demo_seed_watching">Je surveille le serveur cette nuit. Je te préviens s\'il se passe quoi que ce soit.</string>
+    <string name="demo_seed_thanks">Parfait, merci Hermes !</string>
+    <string name="demo_seed_good_evening">Bonne soirée 🌙</string>
+    <string name="demo_seed_task_title">Rapport du matin</string>
+    <string name="demo_seed_task_step_1">Vérifier l\'état des services</string>
+    <string name="demo_seed_task_step_2">Trier la boîte de réception</string>
+    <string name="demo_seed_task_step_3">Relancer la sauvegarde</string>
+    <string name="demo_seed_task_step_4">Préparer le résumé</string>
+    <string name="demo_seed_good_morning">Bonjour ☀️ Tout est au vert.</string>
+    <string name="demo_seed_night_report">23 e-mails triés cette nuit, 2 attendent ta réponse. La sauvegarde s\'était arrêtée à 3 h 12 : je l\'ai relancée, rien de perdu.</string>
+    <string name="demo_seed_ask_recap">Top. Tu peux préparer le récap hebdo pour le client ?</string>
+    <string name="demo_seed_approval_title">Envoyer « Récap hebdo » au client</string>
+    <string name="demo_seed_approval_detail">Bonjour Claire,\nVoici les avancées de la semaine : nouvelle version en recette, temps de réponse divisé par deux…</string>
+    <string name="demo_seed_sent">Envoyé ✉️</string>
+
+    <!-- Mode démo : réponses scriptées -->
+    <string name="demo_fallback_1">Noté. Je garde ça en tête et je te fais signe si quelque chose bouge.</string>
+    <string name="demo_fallback_2">Bonne idée. Je m\'en occupe en arrière-plan, tu n\'as rien à suivre.</string>
+    <string name="demo_fallback_3">Je regarde ça de plus près et je reviens vers toi avec une proposition.</string>
+    <string name="demo_fallback_4">C\'est dans ma liste. Je te préviens dès que c\'est prêt à relire.</string>
+    <string name="demo_reply_file">Fichier bien reçu ! Connecté au gateway, Hermes peut le lire, l\'analyser ou le transformer.</string>
+    <string name="demo_reply_voice">Bien reçu ton vocal ! En mode démo je ne l\'écoute pas vraiment, mais connecté au gateway, Hermes le transcrit avant de répondre.</string>
+    <string name="demo_reply_thanks">Avec plaisir ! 🙌</string>
+    <string name="demo_reply_hello">Salut ! Je suis là. Tout tourne bien côté serveur — tu veux un point rapide sur la nuit ?</string>
+    <string name="demo_reply_deploy">Je lance ça tout de suite.</string>
+    <string name="demo_task_deploy_title">Déploiement v2.4 sur staging</string>
+    <string name="demo_task_deploy_step_1">Récupérer la branche main</string>
+    <string name="demo_task_deploy_step_2">Lancer les tests</string>
+    <string name="demo_task_deploy_step_3">Construire l\'image</string>
+    <string name="demo_task_deploy_step_4">Déployer sur staging</string>
+    <string name="demo_task_deploy_outro">C\'est en ligne sur staging ✅ Tous les tests sont passés (148/148).</string>
+    <string name="demo_reply_mail">J\'ai préparé le brouillon. Il me faut ton feu vert avant l\'envoi.</string>
+    <string name="demo_approval_mail_title">Envoyer « Récap de la semaine » à l\'équipe (6 destinataires)</string>
+    <string name="demo_approval_mail_detail">Bonjour à tous,\nCette semaine : v2.4 en staging, 3 bugs corrigés, et la démo client est calée jeudi à 14 h…</string>
+    <string name="demo_tool_memory_detail">nuit du 1er novembre</string>
+    <string name="demo_reply_night_1">Cette nuit : 23 e-mails triés, 2 attendent ta réponse.</string>
+    <string name="demo_reply_night_2">J\'ai aussi relancé le service de sauvegarde, qui s\'était arrêté à 3 h 12. Rien de perdu.</string>
+    <string name="demo_reply_question">Bonne question. D\'après ce que je vois sur le serveur, oui — mais je vérifie les journaux pour en être sûr.</string>
+    <string name="demo_approval_sent">Envoyé ✉️ Je surveille les réponses.</string>
+    <string name="demo_approval_declined">Pas de souci, je garde le brouillon de côté.</string>
+
+    <!-- Actions communes -->
+    <string name="action_approve">Approuver</string>
+    <string name="action_decline">Refuser</string>
+    <string name="action_reply">Répondre</string>
+    <string name="action_cancel">Annuler</string>
+    <string name="action_close">Fermer</string>
+    <string name="action_stop">Arrêter</string>
+    <string name="action_take_over">Prendre la main</string>
+
+    <!-- Statut de l'agent et de la connexion -->
+    <string name="status_online">En ligne</string>
+    <string name="status_thinking">Réfléchit…</string>
+    <string name="status_typing">Écrit…</string>
+    <string name="conn_offline">Hors ligne</string>
+    <string name="conn_reconnecting">Reconnexion…</string>
+    <string name="conn_demo">Démo</string>
+    <string name="latency_ms">%1$d ms</string>
+
+    <!-- Écran de connexion -->
+    <string name="connect_tagline">Votre agent, à portée de message.\nConnectez son gateway pour commencer.</string>
+    <string name="connect_gateway">Gateway</string>
+    <string name="connect_gateway_hint">wss://ton-serveur/dots/ws</string>
+    <string name="connect_token">Jeton</string>
+    <string name="connect_token_hint">DOTS_TOKEN du serveur</string>
+    <string name="connect_token_help">Le jeton se trouve dans ~/.hermes/.env sur le serveur (DOTS_TOKEN). Il reste mémorisé sur ce téléphone uniquement.</string>
+    <string name="connect_connecting">Connexion…</string>
+    <string name="connect_button">Se connecter</string>
+    <string name="connect_demo">Essayer en mode démo</string>
+
+    <!-- Conversation -->
+    <string name="composer_placeholder">Message à %1$s</string>
+    <string name="chat_start">Début de la conversation</string>
+    <string name="chat_browsing">%1$s navigue · Voir l\'écran</string>
+    <string name="chat_file_too_big">Fichier trop lourd (20 Mo maximum)</string>
+    <string name="attach_photo">Photo</string>
+    <string name="attach_file">Fichier</string>
+    <string name="day_today">Aujourd\'hui</string>
+    <string name="day_yesterday">Hier</string>
+    <string name="receipt_sending">Envoi…</string>
+    <string name="receipt_sent">Envoyé</string>
+    <string name="receipt_read">Lu · %1$s</string>
+    <string name="voice_message">Message vocal</string>
+    <string name="voice_transcript">« %1$s »</string>
+    <string name="code_copy">Copier</string>
+    <string name="code_copied">Copié</string>
+    <string name="file_default_name">fichier</string>
+    <string name="file_no_app">Aucune app pour ouvrir ce fichier</string>
+
+    <!-- Descriptions pour l'accessibilité -->
+    <string name="cd_my_dots">Mes dots</string>
+    <string name="cd_suggestions">Suggestions</string>
+    <string name="cd_send">Envoyer</string>
+    <string name="cd_record_voice">Enregistrer un vocal</string>
+    <string name="cd_cancel_voice">Annuler le vocal</string>
+    <string name="cd_send_voice">Envoyer le vocal</string>
+    <string name="cd_pause">Pause</string>
+    <string name="cd_play">Écouter</string>
+    <string name="cd_collapse">Replier</string>
+    <string name="cd_expand">Voir le détail</string>
+    <string name="cd_failed">Échec</string>
+    <string name="cd_browser_screen">Écran du navigateur</string>
+    <string name="cd_send_enter">Envoyer et Entrée</string>
+    <string name="cd_erase">Effacer</string>
+    <string name="cd_new_dot">Nouveau dot</string>
+
+    <!-- Cartes de l'agent (tâche, feu vert, question, prise en main) -->
+    <string name="task_done">Tâche terminée</string>
+    <string name="task_running">Tâche en cours</string>
+    <string name="approval_required">Approbation requise</string>
+    <string name="approval_decided">Décision prise</string>
+    <string name="approval_default_title">Commande à approuver</string>
+    <string name="approval_approved">Approuvé</string>
+    <string name="approval_declined">Refusé</string>
+    <string name="clarify_question">Question</string>
+    <string name="clarify_free_answer">Réponds simplement dans la conversation.</string>
+    <string name="takeover_needed">Besoin de toi sur son navigateur</string>
+    <string name="takeover_handed_back">Main rendue</string>
+    <string name="takeover_hint">Ce que tu tapes va sur sa page, jamais dans la conversation.</string>
+    <string name="takeover_resumed">Il a repris la main</string>
+    <string name="takeover_done_answer">C\'est fait</string>
+    <string name="takeover_done_message">C\'est bon, j\'ai terminé sur ton navigateur : tu peux reprendre.</string>
+
+    <!-- Écran du navigateur de l'agent -->
+    <string name="screen_you_drive">Tu as la main</string>
+    <string name="screen_of">Écran de %1$s</string>
+    <string name="screen_empty">Aucun navigateur ouvert pour l\'instant.\nDemande-lui d\'aller sur un site : l\'écran s\'affichera ici en direct.</string>
+    <string name="screen_take_over_hint">Pour te connecter, passer un captcha ou une bannière : tu agis directement sur sa page.</string>
+    <string name="screen_type_hint">Touche un champ sur la page, puis tape ici : le texte va directement sur sa page, pas dans la conversation.</string>
+    <string name="screen_type_placeholder">Taper sur la page…</string>
+    <string name="screen_hand_back">Rendre la main</string>
+    <string name="key_tab">Tab</string>
+    <string name="key_escape">Échap</string>
+    <string name="badge_driving">TU PILOTES</string>
+    <string name="badge_live">EN DIRECT</string>
+    <string name="badge_paused">PAUSE</string>
+
+    <!-- Activité -->
+    <string name="activity_title">Activité</string>
+    <string name="activity_now">En ce moment</string>
+    <string name="activity_browser">Navigateur</string>
+    <string name="activity_scheduled">Tâches planifiées</string>
+    <string name="activity_no_crons">Aucune tâche planifiée. Demande-lui par exemple un récap chaque matin.</string>
+    <string name="activity_recent">Récemment</string>
+    <string name="activity_nothing">Rien pour l\'instant.</string>
+    <string name="activity_typing_reply">Écrit sa réponse…</string>
+    <string name="activity_idle">Au repos · disponible</string>
+    <string name="activity_watch_screen">Voir l\'écran en direct</string>
+    <string name="turn_untitled">Message</string>
+    <string name="cron_run_now">Lancer maintenant</string>
+    <string name="cron_finished">Terminée</string>
+    <string name="cron_paused">En pause</string>
+    <string name="cron_next">prochaine %1$s</string>
+    <string name="schedule_once_in">une fois, dans</string>
+    <string name="schedule_every_day_at">tous les jours à</string>
+    <string name="time_in_a_moment">dans un instant</string>
+    <string name="time_in_minutes">dans %1$d min</string>
+    <string name="time_at">à %1$s</string>
+    <string name="time_minutes_ago">il y a %1$d min</string>
+    <string name="time_just_now">à l\'instant</string>
+    <string name="time_hours_ago">il y a %1$d h</string>
+
+    <!-- Réglages du dot principal -->
+    <string name="settings_name">Nom</string>
+    <string name="settings_agent_name">Nom de l\'agent</string>
+    <string name="settings_connection">Connexion</string>
+    <string name="settings_latency">Latence</string>
+    <string name="settings_encryption">Chiffrement</string>
+    <string name="settings_source">Source</string>
+    <string name="settings_source_gateway">Gateway Hermes (plugin dots)</string>
+    <string name="settings_source_demo">Données de démonstration</string>
+    <string name="settings_mascot">Mascotte</string>
+    <string name="settings_display">Affichage</string>
+    <string name="settings_color">Couleur</string>
+    <string name="settings_accessory">Accessoire</string>
+    <string name="settings_disconnect">Se déconnecter</string>
+    <string name="theme_auto">Auto</string>
+    <string name="theme_light">Clair</string>
+    <string name="theme_dark">Sombre</string>
+
+    <!-- Mascottes, accessoires et couleurs -->
+    <string name="species_galet">Galet</string>
+    <string name="species_nuage">Nuage</string>
+    <string name="species_pave">Pavé</string>
+    <string name="accessory_winged_cap">Pétase ailé</string>
+    <string name="accessory_antenna">Antenne</string>
+    <string name="accessory_sprout">Pousse</string>
+    <string name="accessory_none">Tête nue</string>
+    <string name="color_tangerine">Mandarine</string>
+    <string name="color_bubblegum">Bubblegum</string>
+    <string name="color_sky">Azur</string>
+    <string name="color_lime">Citron vert</string>
+    <string name="color_sun">Soleil</string>
+    <string name="color_grape">Raisin</string>
+
+    <!-- Sous-dots -->
+    <string name="dot_new">Nouveau</string>
+    <string name="dot_kind_temporary">Temporaire</string>
+    <string name="dot_kind_permanent">Permanent</string>
+    <string name="dot_temporary_intro">Pour une mission précise, à fermer ensuite.</string>
+    <string name="dot_permanent_intro">Un spécialiste qui reste, avec sa propre conversation.</string>
+    <string name="dot_type">Type</string>
+    <string name="dot_mission">Mission</string>
+    <string name="dot_specialty">Spécialisation</string>
+    <string name="dot_mission_hint">Ex. : compare trois offres de box internet et dis-moi la meilleure</string>
+    <string name="dot_specialty_hint">Ex. : mon comptable — factures, notes de frais, TVA, échéances</string>
+    <string name="dot_name_optional">Nom (facultatif)</string>
+    <string name="dot_name_hint">Ex. : Compta</string>
+    <string name="dot_create">Créer le dot</string>
+    <string name="dot_save">Enregistrer</string>
+    <string name="dot_close_mission">Mission terminée : fermer ce dot</string>
+    <string name="dot_delete">Supprimer ce dot</string>
+    <string name="dot_close_title">Fermer %1$s ?</string>
+    <string name="dot_this">ce dot</string>
+    <string name="dot_close_text">Sa conversation sera effacée. Ce qu\'il a fait sur ton serveur reste en place, et ton dot principal n\'est pas touché.</string>
+    <string name="dot_close_confirm">Fermer le dot</string>
+
+    <!-- Notifications -->
+    <string name="notif_channel_name">Messages de Hermes</string>
+    <string name="notif_channel_description">Réponses, questions et demandes de feu vert de ton agent</string>
+    <string name="notif_me">Moi</string>
+    <string name="notif_reply_not_sent">%1$s  (non envoyé — ouvre l\'app)</string>
+    <string name="notif_approval_title">%1$s attend ton feu vert</string>
+    <string name="notif_approval_approving">Approbation…</string>
+    <string name="notif_approval_declining">Refus…</string>
+    <string name="notif_approval_sending">Envoi de ta décision à %1$s</string>
+    <string name="notif_approval_approved">Approuvé ✓</string>
+    <string name="notif_approval_declined">Refusé</string>
+    <string name="notif_approval_approved_text">%1$s continue.</string>
+    <string name="notif_approval_declined_text">%1$s n\'exécutera pas la commande.</string>
+    <string name="notif_approval_not_sent">Décision non envoyée</string>
+    <string name="notif_approval_not_sent_text">Gateway injoignable : ouvre l\'app pour répondre.</string>
+
+    <!-- Quantités variables -->
+    <plurals name="tool_actions">
+        <item quantity="one">%d action</item>
+        <item quantity="other">%d actions</item>
+    </plurals>
+    <plurals name="tool_failed">
+        <item quantity="one">%d en échec</item>
+        <item quantity="other">%d en échec</item>
+    </plurals>
+    <plurals name="task_progress">
+        <item quantity="one">%1$d sur %2$d étape</item>
+        <item quantity="other">%1$d sur %2$d étapes</item>
+    </plurals>
+    <plurals name="schedule_every_minutes">
+        <item quantity="one">toutes les minutes</item>
+        <item quantity="other">toutes les %d min</item>
+    </plurals>
+    <plurals name="schedule_every_hours">
+        <item quantity="one">toutes les heures</item>
+        <item quantity="other">toutes les %d h</item>
+    </plurals>
+    <plurals name="schedule_every_days">
+        <item quantity="one">tous les jours</item>
+        <item quantity="other">tous les %d jours</item>
+    </plurals>
+
+    <!-- Suggestions du bouton « + » -->
+    <string-array name="chat_suggestions">
+        <item>Qu\'as-tu fait cette nuit ?</item>
+        <item>Qu\'est-ce qui m\'attend aujourd\'hui ?</item>
+        <item>Résume mes derniers messages</item>
+        <item>Merci Hermes !</item>
+    </string-array>
+</resources>

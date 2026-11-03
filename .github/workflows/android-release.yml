@@ -39,7 +39,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Paquets explicites : la liste par défaut contient « tools », absent des cmdline-tools récents
+      # (sdkmanager échoue alors avant la compilation). Plateforme et build-tools viennent de Gradle.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v4
 

@@ -21,6 +21,7 @@ The app speaks **English** and **French** and follows your phone's language: see
 
 ## Table of contents
 
+- [Video](#video)
 - [Screenshots](#screenshots)
 - [Features](#features)
   - [Stable](#stable)
@@ -41,6 +42,21 @@ The app speaks **English** and **French** and follows your phone's language: see
 - [Security notes](#security-notes)
 - [Project structure](#project-structure)
 - [Documentation](#documentation)
+- [License](#license)
+
+---
+
+## Video
+
+A 27-second tour: how the app and the gateway fit together, pairing, a conversation, approvals,
+sub-dots and media, and making the mascot your own.
+Click the image to play it (with sound).
+
+<p align="center">
+  <a href="assets/demo.mp4">
+    <img src="assets/demo-poster.jpg" alt="Video: a 27-second tour of the app" width="100%">
+  </a>
+</p>
 
 ---
 
@@ -515,3 +531,11 @@ Run the unit tests with:
 
 - [Gateway protocol](docs/protocole-gateway.md): every frame, history, attachments, live screen,
   takeover, sub-dots, push (French).
+
+---
+
+## License
+
+Hermes is free software, released under the [GNU General Public License v3.0](LICENSE): you can use,
+study, share and modify it, and any distributed version, modified or not, must stay under the same
+license with its source code available.

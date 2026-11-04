@@ -52,14 +52,6 @@
 .agent-item:hover { background: var(--ink-fill); }
 .agent-item.is-selected { background: var(--dot-light); }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .agent-item.is-selected {
-    background: color-mix(in srgb, var(--dot-base) 22%, var(--ink-raised));
-  }
-}
-:root[data-theme="dark"] .agent-item.is-selected {
-  background: color-mix(in srgb, var(--dot-base) 22%, var(--ink-raised));
-}
 
 .agent-avatar {
   position: relative;
@@ -143,8 +135,6 @@
   height: 100%;
 }
 
-.chat-palette { height: 100%; }
-
 .chat {
   position: relative;
   display: flex;
@@ -155,23 +145,108 @@
   isolation: isolate;
 }
 
-/* Le halo de la palette derrière l'en-tête, comme le dégradé de ChatScreen.kt. */
-.chat::before {
-  content: "";
+/*
+ * L'en-tête flotte au-dessus du fil, comme dans l'app : blanc plein derrière la mascotte et le nom,
+ * puis un dégradé vers le transparent où les messages viennent se fondre en défilant.
+ * Les zones vides laissent passer les clics vers le fil ; seuls ses contrôles les captent.
+ */
+.chat-header {
   position: absolute;
   inset: 0 0 auto;
-  height: 280px;
-  background: linear-gradient(var(--dot-light), color-mix(in srgb, var(--dot-light) 0%, transparent));
-  pointer-events: none;
-  z-index: -1;
-}
-
-.chat-header {
+  z-index: 5;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
   gap: 12px;
-  padding: 14px 20px 10px;
+  padding: 14px 20px 32px;
+  /* Blanc plein jusque sous le sélecteur de dots, puis fondu sur les 32 derniers pixels. */
+  background: linear-gradient(
+    to bottom,
+    var(--ink-surface) calc(100% - 32px),
+    rgba(255, 255, 255, 0.7) calc(100% - 16px),
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+}
+.chat-header > * { pointer-events: auto; }
+.chat-header > .chat-header-side:first-child { pointer-events: none; }
+
+/* -- Sélecteur des dots (principal + sous-dots) ------------------------------------------------- */
+
+.dot-switcher {
+  grid-column: 1 / -1;
+  justify-self: center;
+  display: flex;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dot-switcher::-webkit-scrollbar { display: none; }
+
+.dot-chip {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 4px;
+  border: 0.5px solid var(--ink-separator);
+  border-radius: 999px;
+  background: var(--ink-raised);
+  color: var(--ink-primary);
+  box-shadow: 0 1px 2px rgba(17, 17, 20, 0.04);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s var(--ease);
+}
+.dot-chip:hover { background: var(--ink-fill); }
+.dot-chip:active { transform: scale(0.97); }
+.dot-chip.is-selected {
+  background: var(--dot-light);
+  border-color: color-mix(in srgb, var(--dot-base) 35%, transparent);
+  color: var(--dot-deep);
+}
+
+.dot-chip-name {
+  max-width: 120px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot-chip-busy {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dot-base);
+  animation: chip-pulse 1.2s ease-in-out infinite;
+}
+
+.dot-chip-unread {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid var(--ink-surface);
+  border-radius: 999px;
+  background: var(--dot-base);
+  color: var(--dot-on-base);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+@keyframes chip-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 .chat-header-side {
@@ -279,7 +354,8 @@
 .thread-inner {
   max-width: 760px;
   margin: 0 auto;
-  padding: 4px 20px 16px;
+  /* Le fil commence sous l'en-tête flottant (hauteur mesurée par ChatView). */
+  padding: calc(var(--header-h, 120px) - 16px) 20px 16px;
 }
 
 .thread-top {
@@ -1017,10 +1093,11 @@
   .agent-add { margin-top: 0; }
   .agent-add-icon { width: 28px; height: 28px; }
 
-  .chat-header { padding: 10px 16px 8px; gap: 8px; }
+  .chat-header { padding: 10px 16px 32px; gap: 8px; }
   .chat-name { max-width: 50vw; }
   .stop-btn { padding: 0 10px; }
-  .thread-inner { padding: 4px 16px 12px; }
+  .thread-inner { padding: calc(var(--header-h, 120px) - 16px) 16px 12px; }
+  .dot-switcher { justify-self: stretch; }
   .composer-zone { padding: 8px 16px max(12px, env(safe-area-inset-bottom)); }
   .card,
   .trail-timeline { width: 100%; }

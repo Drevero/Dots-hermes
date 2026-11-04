@@ -1,15 +1,19 @@
 import { removeAgent } from "../store";
 import type { WebAgent } from "../types";
 import {
+  EMPTY_CHAT,
   EMPTY_SNAPSHOT,
   MAIN_CHAT,
   chatOf,
+  toDots,
   toMessage,
   toTool,
   type Activity,
   type ChatMessage,
+  type ChatState,
   type Delivery,
   type GatewaySnapshot,
+  type SubDot,
   type ToolCall,
 } from "./model";
 import { toolLabel } from "./toolLabels";
@@ -22,8 +26,12 @@ import { toolLabel } from "./toolLabels";
  * depuis `lastSeq`, puis les messages tapés hors ligne repartent (le plugin déduplique par
  * `client_id`). Rien n'est gardé entre deux chargements de la page : on repart de la page récente.
  *
- * L'état exposé est un instantané immuable ([GatewaySnapshot]) : `subscribe` + `getSnapshot`, lus
- * par le hook `useGateway`.
+ * Un agent a plusieurs conversations : le dot principal (`owner`) et un par sous-dot (`dot-<id>`).
+ * Chacune a son état ([ChatState]) ; celle d'un sous-dot n'est chargée que lorsqu'on l'ouvre. Tant
+ * qu'elle ne l'est pas, ses messages ne font que compter comme non lus.
+ *
+ * L'état exposé est un instantané immuable ([GatewaySnapshot]), reconstruit à chaque changement :
+ * `subscribe` + `getSnapshot`, lus par le hook `useGateway`.
  */
 
 /** Backoff de reconnexion, comme l'app Android (GatewayChatRepository.ReconnectBackoffMs). */
@@ -37,12 +45,18 @@ const MAX_PAGE = 200;
 const FETCH_TIMEOUT_MS = 60_000;
 
 type Json = Record<string, any>;
-type PageMode = "older" | "refresh";
+/** `first` : la page la plus récente d'une conversation qu'on ouvre pour la première fois. */
+type PageMode = "first" | "older" | "refresh";
 
 interface PendingFetch {
   resolve: (blob: Blob) => void;
   reject: (error: Error) => void;
   timer: number;
+}
+
+/** État interne d'une conversation : l'état affiché plus le plus ancien `seq` chargé. */
+interface Chat extends ChatState {
+  oldestSeq: number;
 }
 
 const DELIVERY_RANK: Record<Delivery, number> = { sending: 0, sent: 1, read: 2 };
@@ -52,17 +66,22 @@ export class GatewayClient {
   private snapshot: GatewaySnapshot = EMPTY_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
 
+  private readonly chats = new Map<string, Chat>();
+  private activeChat = MAIN_CHAT;
+  private dots: SubDot[] = [];
+  private status: GatewaySnapshot["status"] = "connecting";
+  private serverName: string | null = null;
+
   private ws: WebSocket | null = null;
   /** `welcome` reçu sur la socket courante : on peut envoyer. */
   private ready = false;
   private lastSeq = 0;
-  private oldestSeq = 0;
   private attempt = 0;
   private retryTimer: number | null = null;
   private connectTimer: number | null = null;
   private disposed = false;
-  /** Demandes `history_page` en vol, dans l'ordre : le gateway répond dans le même ordre. */
-  private pageQueue: PageMode[] = [];
+  /** Demandes `history_page` en vol, par conversation : le gateway répond dans l'ordre. */
+  private readonly pageQueues = new Map<string, PageMode[]>();
   private readonly fetches = new Map<string, PendingFetch>();
 
   private foreground = false;
@@ -82,9 +101,49 @@ export class GatewayClient {
 
   getSnapshot = (): GatewaySnapshot => this.snapshot;
 
-  private set(patch: Partial<GatewaySnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...patch };
+  /** Reconstruit l'instantané : la conversation ouverte à plat, et un résumé de toutes les autres. */
+  private publish(): void {
+    const current = this.chat(this.activeChat);
+    const chats: GatewaySnapshot["chats"] = {};
+    let unread = 0;
+    for (const [id, c] of this.chats) {
+      chats[id] = { unread: c.unread, activity: c.activity };
+      unread += c.unread;
+    }
+    this.snapshot = {
+      messages: current.messages,
+      tools: current.tools,
+      activity: current.activity,
+      loaded: current.loaded,
+      hasMore: current.hasMore,
+      loadingOlder: current.loadingOlder,
+      status: this.status,
+      serverName: this.serverName,
+      activeChat: this.activeChat,
+      dots: this.dots,
+      chats,
+      unread,
+    };
     this.listeners.forEach((l) => l());
+  }
+
+  /** L'état d'une conversation, créé vide au besoin. */
+  private chat(id: string): Chat {
+    let c = this.chats.get(id);
+    if (!c) {
+      c = { ...EMPTY_CHAT, oldestSeq: 0 };
+      this.chats.set(id, c);
+    }
+    return c;
+  }
+
+  private patchChat(id: string, patch: Partial<Chat>): void {
+    this.chats.set(id, { ...this.chat(id), ...patch });
+  }
+
+  /** Une conversation qui existe pour ce navigateur : le dot principal ou un sous-dot connu. */
+  private knows(chat: string): boolean {
+    return chat === MAIN_CHAT || this.dots.some((d) => d.id === chat);
   }
 
   /* -- Cycle de vie ---------------------------------------------------------------------------- */
@@ -146,8 +205,27 @@ export class GatewayClient {
     this.updatePresence(() => (this.active = active));
   }
 
+  /** La conversation ouverte est sous les yeux : ses non lus disparaissent. */
   private clearUnreadIfSeen(): void {
-    if (this.active && this.foreground && this.snapshot.unread > 0) this.set({ unread: 0 });
+    if (this.present && this.chat(this.activeChat).unread > 0) {
+      this.patchChat(this.activeChat, { unread: 0 });
+      this.publish();
+    }
+  }
+
+  /** Ouvre la conversation du dot principal ou d'un sous-dot ; sa première page est demandée au besoin. */
+  selectChat(chat: string): void {
+    const target = this.knows(chat) ? chat : MAIN_CHAT;
+    if (target === this.activeChat) return;
+    this.activeChat = target;
+    this.loadIfNeeded(target);
+    this.publish();
+    this.clearUnreadIfSeen();
+  }
+
+  private loadIfNeeded(chat: string): void {
+    const c = this.chat(chat);
+    if (!c.loaded && !this.pageQueue(chat).includes("first")) this.requestPage(chat, null, PAGE_SIZE, "first");
   }
 
   /* -- Transport ------------------------------------------------------------------------------- */
@@ -159,14 +237,16 @@ export class GatewayClient {
       ws = new WebSocket(this.agent.url, ["dots.v1", "dots.token." + this.agent.token]);
     } catch {
       // URL invalide : rien à espérer d'une reconnexion rapide, mais on retente quand même au rythme lent.
-      this.set({ status: "offline" });
+      this.status = "offline";
+      this.publish();
       this.scheduleRetry();
       return;
     }
     this.ws = ws;
     this.ready = false;
-    this.pageQueue = [];
-    this.set({ status: "connecting" });
+    this.pageQueues.clear();
+    this.status = "connecting";
+    this.publish();
     this.connectTimer = window.setTimeout(() => {
       if (this.ws === ws && !this.ready) ws.close();
     }, CONNECT_TIMEOUT_MS);
@@ -195,7 +275,7 @@ export class GatewayClient {
   private onDropped(code: number): void {
     this.ws = null;
     this.ready = false;
-    this.pageQueue = [];
+    this.pageQueues.clear();
     if (this.connectTimer != null) clearTimeout(this.connectTimer);
     if (this.disposed) return;
     if (code === CLOSE_UNAUTHORIZED) {
@@ -204,7 +284,9 @@ export class GatewayClient {
       removeAgent(this.agent);
       return;
     }
-    this.set({ status: "offline", activity: "idle", loadingOlder: false });
+    this.status = "offline";
+    for (const [id, c] of this.chats) this.chats.set(id, { ...c, activity: "idle", loadingOlder: false });
+    this.publish();
     this.scheduleRetry();
   }
 
@@ -242,9 +324,9 @@ export class GatewayClient {
         return this.onWelcome(frame);
       case "history_page":
         return this.onHistoryPage(frame);
-      case "ack":
+      case "ack": {
         this.bumpSeq(frame);
-        if (chatOf(frame) !== MAIN_CHAT) return;
+        // `ack` d'un vocal ou d'un fichier : pas de `chat` ; on cherche le client_id partout.
         return this.updateMessages(
           (m) => m.key === frame.client_id && m.id == null,
           (m) => ({
@@ -255,21 +337,28 @@ export class GatewayClient {
             delivery: maxDelivery(m.delivery, "sent"),
           }),
         );
+      }
       case "read":
         return this.updateMessages(
           (m) => m.id === frame.id,
           (m) => ({ ...m, delivery: "read" }),
         );
-      case "activity":
-        if (chatOf(frame) === MAIN_CHAT) this.set({ activity: toActivity(frame.state) });
-        return;
+      case "activity": {
+        const chat = chatOf(frame);
+        if (!this.knows(chat)) return;
+        this.patchChat(chat, { activity: toActivity(frame.state) });
+        return this.publish();
+      }
       case "message":
       case "approval":
       case "clarify":
       case "tool":
         this.bumpSeq(frame);
-        if (chatOf(frame) !== MAIN_CHAT) return;
         return this.merge([frame], true);
+      case "dots":
+        return this.onDots(toDots(frame.dots));
+      case "dot_deleted":
+        return this.onDots(this.dots.filter((d) => d.id !== frame.id));
       case "edit":
         // Pas de `chat` sur `edit` : l'id suffit, il n'existe que dans une conversation.
         return this.updateMessages(
@@ -309,63 +398,80 @@ export class GatewayClient {
         console.warn(`[dots] ${this.agent.name}: gateway error`, frame.code);
         return;
       default:
-      // Sous-dots, écran, activité… : hors du périmètre de cette version.
+      // Écran, vue Activité… : hors du périmètre de cette version.
     }
+  }
+
+  /** Nouvelle liste des sous-dots : on oublie les conversations fermées. */
+  private onDots(dots: SubDot[]): void {
+    this.dots = dots;
+    for (const id of [...this.chats.keys()]) {
+      if (id !== MAIN_CHAT && !dots.some((d) => d.id === id)) this.chats.delete(id);
+    }
+    if (!this.knows(this.activeChat)) this.activeChat = MAIN_CHAT;
+    this.publish();
   }
 
   private onWelcome(frame: Json): void {
     if (this.connectTimer != null) clearTimeout(this.connectTimer);
     this.ready = true;
     this.attempt = 0;
+    if (Array.isArray(frame.dots)) this.onDots(toDots(frame.dots));
     const history: Json[] = Array.isArray(frame.history) ? frame.history : [];
-    const mine = history.filter((e) => chatOf(e) === MAIN_CHAT);
-    const activity = toActivity(frame.activities?.[MAIN_CHAT] ?? frame.activity);
+    const activities: Json = frame.activities && typeof frame.activities === "object" ? frame.activities : {};
 
     if (frame.reset) {
-      // Nouvelle fenêtre (premier chargement, ou trop de retard) : on remplace le fil, en gardant
-      // ce qui a été tapé ici et pas encore enregistré.
-      const unsent = this.snapshot.messages.filter((m) => m.role === "user" && m.id == null);
-      this.snapshot = { ...this.snapshot, messages: unsent, tools: [] };
-      this.oldestSeq = minSeq(mine);
-      this.merge(mine, false);
-      this.set({ hasMore: !!frame.has_more, loaded: true });
+      // Nouvelle fenêtre (premier chargement, ou trop de retard) : le gateway n'envoie que la page
+      // récente du dot principal. On la prend, et les sous-dots repartent de zéro : leur page sera
+      // redemandée à leur ouverture. Ce qui a été tapé ici sans être enregistré est gardé.
+      for (const [id, c] of this.chats) {
+        const unsent = c.messages.filter((m) => m.role === "user" && m.id == null);
+        this.chats.set(id, { ...EMPTY_CHAT, oldestSeq: 0, messages: unsent, unread: c.unread });
+      }
+      const main = history.filter((e) => chatOf(e) === MAIN_CHAT);
+      // `loaded` avant la fusion : une conversation non chargée ne garde pas les événements.
+      this.patchChat(MAIN_CHAT, { oldestSeq: minSeq(main), hasMore: !!frame.has_more, loaded: true });
+      this.merge(main, false);
     } else {
-      // Rattrapage d'une coupure : ce que l'agent a écrit entre-temps compte comme non lu.
-      this.merge(mine, true);
-      if (!this.snapshot.loaded) this.set({ loaded: true });
-      if (this.oldestSeq === 0) this.oldestSeq = minSeq(mine);
+      // Rattrapage d'une coupure, toutes conversations confondues : ce que les dots ont écrit
+      // entre-temps compte comme non lu.
+      this.merge(history, true);
+      this.patchChat(MAIN_CHAT, { loaded: true });
       // Une réponse en streaming, un outil ou une carte peut avoir changé pendant la coupure : ces
       // mises à jour modifient l'événement sans nouveau `seq`, donc `hello` ne les rejoue pas.
-      if (this.hasStaleEvents()) this.requestPage(this.lastSeq + 1, MAX_PAGE, "refresh");
+      for (const [id, c] of this.chats) {
+        if (c.loaded && hasStaleEvents(c)) this.requestPage(id, this.lastSeq + 1, MAX_PAGE, "refresh");
+      }
+    }
+    for (const [id, c] of this.chats) {
+      this.chats.set(id, { ...c, activity: toActivity(activities[id] ?? (id === MAIN_CHAT ? frame.activity : "idle")) });
     }
     if (typeof frame.seq === "number") this.lastSeq = Math.max(this.lastSeq, frame.seq);
-    this.set({ status: "online", serverName: frame.agent ? String(frame.agent) : null, activity });
+    this.status = "online";
+    this.serverName = frame.agent ? String(frame.agent) : null;
+    this.loadIfNeeded(this.activeChat);
+    this.publish();
     this.flushUnsent();
   }
 
-  private hasStaleEvents(): boolean {
-    const { messages, tools } = this.snapshot;
-    return (
-      messages.some(
-        (m) =>
-          m.id != null &&
-          ((m.role === "agent" && !m.final) ||
-            (m.approval && !m.approval.resolved) ||
-            (m.kind === "takeover" && m.status === "pending")),
-      ) || tools.some((t) => t.state === "running")
-    );
-  }
-
   private onHistoryPage(frame: Json): void {
-    if (chatOf(frame) !== MAIN_CHAT) return;
-    const mode = this.pageQueue.shift() ?? "older";
+    const chat = chatOf(frame);
+    const mode = this.pageQueue(chat).shift() ?? "older";
+    if (!this.knows(chat)) return;
     const events: Json[] = Array.isArray(frame.events) ? frame.events : [];
-    this.merge(events, false);
-    if (mode === "older") {
+    if (mode !== "refresh") {
+      // `loaded` avant la fusion : une conversation non chargée ne garde pas les événements.
+      const c = this.chat(chat);
       const oldest = minSeq(events);
-      if (oldest > 0) this.oldestSeq = this.oldestSeq === 0 ? oldest : Math.min(this.oldestSeq, oldest);
-      this.set({ hasMore: !!frame.has_more && events.length > 0, loadingOlder: false });
+      this.patchChat(chat, {
+        oldestSeq: oldest > 0 ? (c.oldestSeq === 0 ? oldest : Math.min(c.oldestSeq, oldest)) : c.oldestSeq,
+        hasMore: !!frame.has_more && events.length > 0,
+        loadingOlder: false,
+        loaded: true,
+      });
     }
+    this.merge(events, false);
+    this.publish();
   }
 
   private onFileData(frame: Json): void {
@@ -387,38 +493,52 @@ export class GatewayClient {
   /* -- Fusion des événements ------------------------------------------------------------------- */
 
   /**
-   * Insère ou remplace par id les messages et outils reçus (welcome, page, trame live), en gardant
-   * ce que seul ce navigateur sait : clé locale, réactions, réponse à une question.
+   * Insère ou remplace par id les messages et outils reçus (welcome, page, trame live), chacun dans
+   * sa conversation, en gardant ce que seul ce navigateur sait : clé locale, réactions, réponse à
+   * une question. Une conversation pas encore chargée ne garde rien : elle compte ses non lus.
    */
   private merge(events: Json[], live: boolean): void {
     if (events.length === 0) return;
-    let messages = this.snapshot.messages;
-    let tools = this.snapshot.tools;
-    let unread = this.snapshot.unread;
-    let messagesChanged = false;
-    let toolsChanged = false;
-
+    let changed = false;
     for (const event of events) {
+      const chatId = chatOf(event);
+      if (!this.knows(chatId)) continue;
+      const c = this.chat(chatId);
+      const seen = this.present && chatId === this.activeChat;
+
+      if (!c.loaded) {
+        if (live && event.type !== "tool" && !seen) {
+          const incoming = toMessage(event);
+          if (incoming?.role === "agent") {
+            this.patchChat(chatId, { unread: c.unread + 1 });
+            changed = true;
+          }
+        }
+        continue;
+      }
+
       if (event.type === "tool") {
         const tool = toTool(event, toolLabel);
         if (!tool) continue;
-        const index = tools.findIndex((t) => t.id === tool.id);
-        tools = index < 0 ? [...tools, tool] : tools.map((t, i) => (i === index ? { ...tool, seq: tool.seq || t.seq } : t));
-        toolsChanged = true;
+        const index = c.tools.findIndex((t) => t.id === tool.id);
+        const tools = index < 0 ? [...c.tools, tool] : c.tools.map((t, i) => (i === index ? { ...tool, seq: tool.seq || t.seq } : t));
+        this.patchChat(chatId, { tools });
+        changed = true;
         continue;
       }
       const incoming = toMessage(event);
       if (!incoming) continue;
+      let messages = c.messages;
+      let unread = c.unread;
       let index = messages.findIndex((m) => m.id === incoming.id);
       if (index < 0 && incoming.role === "user" && incoming.kind === "text") {
-        // L'ack d'un message a pu se perdre dans une coupure : le plugin ignore alors le renvoi
-        // (même client_id), mais le rejoue dans l'historique. On le reconnaît à son texte.
+        // Un message tapé ici dont l'ack s'est perdu revient dans l'historique : on le reconnaît à son texte.
         index = messages.findIndex((m) => m.role === "user" && m.id == null && m.text.trim() === incoming.text.trim());
       }
       if (index < 0) {
         const answer = incoming.clarify ? clarifyAnswers.get(incoming.id!) : undefined;
         messages = [...messages, answer ? { ...incoming, clarify: { ...incoming.clarify!, answer } } : incoming];
-        if (live && incoming.role === "agent" && !(this.active && this.foreground)) unread++;
+        if (live && incoming.role === "agent" && !seen) unread++;
       } else {
         const existing = messages[index];
         const merged: ChatMessage = {
@@ -435,48 +555,77 @@ export class GatewayClient {
         };
         messages = messages.map((m, i) => (i === index ? merged : m));
       }
-      messagesChanged = true;
+      this.patchChat(chatId, { messages: sortMessages(messages), unread });
+      changed = true;
     }
-    const patch: Partial<GatewaySnapshot> = {};
-    if (messagesChanged) patch.messages = sortMessages(messages);
-    if (toolsChanged) patch.tools = tools;
-    if (unread !== this.snapshot.unread) patch.unread = unread;
-    if (messagesChanged || toolsChanged) this.set(patch);
+    if (changed) this.publish();
   }
 
+  /** Applique [transform] aux messages qui correspondent, dans toutes les conversations. */
   private updateMessages(match: (m: ChatMessage) => boolean, transform: (m: ChatMessage) => ChatMessage): void {
-    const { messages } = this.snapshot;
-    if (!messages.some(match)) return;
-    this.set({ messages: messages.map((m) => (match(m) ? transform(m) : m)) });
+    let changed = false;
+    for (const [id, c] of this.chats) {
+      if (!c.messages.some(match)) continue;
+      this.chats.set(id, { ...c, messages: c.messages.map((m) => (match(m) ? transform(m) : m)) });
+      changed = true;
+    }
+    if (changed) this.publish();
   }
 
-  private updateTools(id: unknown, transform: (t: ToolCall) => ToolCall): void {
-    const { tools } = this.snapshot;
-    if (!tools.some((t) => t.id === id)) return;
-    this.set({ tools: tools.map((t) => (t.id === id ? transform(t) : t)) });
+  private updateTools(toolId: unknown, transform: (t: ToolCall) => ToolCall): void {
+    for (const [id, c] of this.chats) {
+      if (!c.tools.some((t) => t.id === toolId)) continue;
+      this.chats.set(id, { ...c, tools: c.tools.map((t) => (t.id === toolId ? transform(t) : t)) });
+      this.publish();
+      return;
+    }
   }
 
-  private requestPage(before: number, limit: number, mode: PageMode): boolean {
-    if (!this.ready || !this.sendFrame({ type: "history_page", chat: MAIN_CHAT, before_seq: before, limit })) return false;
-    this.pageQueue.push(mode);
+  private pageQueue(chat: string): PageMode[] {
+    let queue = this.pageQueues.get(chat);
+    if (!queue) {
+      queue = [];
+      this.pageQueues.set(chat, queue);
+    }
+    return queue;
+  }
+
+  /** `before` null : la page la plus récente. */
+  private requestPage(chat: string, before: number | null, limit: number, mode: PageMode): boolean {
+    if (!this.ready) return false;
+    const frame: Json = { type: "history_page", chat, limit };
+    if (before != null) frame.before_seq = before;
+    if (!this.sendFrame(frame)) return false;
+    this.pageQueue(chat).push(mode);
     return true;
   }
 
   /** Renvoie ce qui a été tapé pendant la coupure ; le plugin déduplique par client_id. */
   private flushUnsent(): void {
-    for (const m of this.snapshot.messages) {
-      if (m.role === "user" && m.id == null && m.kind === "text") {
-        this.sendFrame({ type: "message", client_id: m.key, text: m.text, chat: MAIN_CHAT });
+    for (const [chat, c] of this.chats) {
+      for (const m of c.messages) {
+        if (m.role === "user" && m.id == null && m.kind === "text") {
+          this.sendFrame({ type: "message", client_id: m.key, text: m.text, chat });
+        }
       }
     }
   }
 
+  private findMessage(key: string): ChatMessage | undefined {
+    for (const c of this.chats.values()) {
+      const found = c.messages.find((m) => m.key === key);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
   /* -- Actions de l'interface ------------------------------------------------------------------ */
 
-  /** Bulle « Envoi… » tout de suite ; part maintenant si la socket est prête, sinon au prochain welcome. */
+  /** Bulle « Envoi… » tout de suite, dans la conversation ouverte ; part maintenant si la socket est prête, sinon au prochain welcome. */
   send(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const chat = this.activeChat;
     const message: ChatMessage = {
       key: newClientId(),
       id: null,
@@ -491,13 +640,14 @@ export class GatewayClient {
       delivery: "sending",
       reactions: {},
     };
-    this.set({ messages: [...this.snapshot.messages, message] });
-    if (this.ready) this.sendFrame({ type: "message", client_id: message.key, text: trimmed, chat: MAIN_CHAT });
+    this.patchChat(chat, { messages: [...this.chat(chat).messages, message] });
+    this.publish();
+    if (this.ready) this.sendFrame({ type: "message", client_id: message.key, text: trimmed, chat });
   }
 
   /** Double-clic sur une bulle : pose ou retire la réaction de l'utilisateur. */
   toggleReaction(key: string, emoji: string): void {
-    const target = this.snapshot.messages.find((m) => m.key === key);
+    const target = this.findMessage(key);
     if (!target?.id || !this.ready) return;
     const next = target.reactions.user === emoji ? null : emoji;
     this.updateMessages(
@@ -509,7 +659,7 @@ export class GatewayClient {
 
   /** Approuver = `once`, Refuser = `deny`, comme l'app. */
   answerApproval(key: string, approve: boolean): void {
-    const target = this.snapshot.messages.find((m) => m.key === key);
+    const target = this.findMessage(key);
     if (!target?.approval || target.approval.resolved || !target.id) return;
     const choice = approve ? "once" : "deny";
     if (!this.sendFrame({ type: "approval", approval_id: target.id, choice })) return;
@@ -520,7 +670,7 @@ export class GatewayClient {
   }
 
   answerClarify(key: string, response: string): void {
-    const target = this.snapshot.messages.find((m) => m.key === key);
+    const target = this.findMessage(key);
     if (!target?.clarify || target.clarify.answer != null || !target.id || !response.trim()) return;
     if (!this.sendFrame({ type: "clarify", clarify_id: target.id, response })) return;
     clarifyAnswers.set(target.id, response);
@@ -530,16 +680,20 @@ export class GatewayClient {
     );
   }
 
-  /** Interrompt le tour en cours (équivalent de `/stop`, non écrit dans la conversation). */
+  /** Interrompt le tour en cours de la conversation ouverte (`/stop`, non écrit dans la conversation). */
   stop(): void {
-    this.sendFrame({ type: "stop", chat: MAIN_CHAT });
+    this.sendFrame({ type: "stop", chat: this.activeChat });
   }
 
-  /** Page plus ancienne, quand le haut du fil apparaît. */
+  /** Page plus ancienne de la conversation ouverte, quand le haut du fil apparaît. */
   loadOlder(): void {
-    const s = this.snapshot;
-    if (!s.hasMore || s.loadingOlder || this.oldestSeq <= 1) return;
-    if (this.requestPage(this.oldestSeq, PAGE_SIZE, "older")) this.set({ loadingOlder: true });
+    const chat = this.activeChat;
+    const c = this.chat(chat);
+    if (!c.loaded || !c.hasMore || c.loadingOlder || c.oldestSeq <= 1) return;
+    if (this.requestPage(chat, c.oldestSeq, PAGE_SIZE, "older")) {
+      this.patchChat(chat, { loadingOlder: true });
+      this.publish();
+    }
   }
 
   /** Contenu d'une pièce jointe (`file_get`) ou d'un vocal (`audio_get`) de l'historique. */
@@ -592,6 +746,17 @@ function minSeq(events: Json[]): number {
   let min = 0;
   for (const e of events) if (typeof e.seq === "number" && e.seq > 0 && (min === 0 || e.seq < min)) min = e.seq;
   return min;
+}
+
+/** Quelque chose a pu changer sans nouveau `seq` (streaming, outil, carte encore ouverte). */
+function hasStaleEvents(c: ChatState): boolean {
+  return (
+    c.messages.some(
+      (m) =>
+        m.id != null &&
+        ((m.role === "agent" && !m.final) || (m.approval && !m.approval.resolved) || (m.kind === "takeover" && m.status === "pending")),
+    ) || c.tools.some((t) => t.state === "running")
+  );
 }
 
 /** Ordre du fil : par `seq` (ordre du serveur), les messages pas encore enregistrés à la fin. */

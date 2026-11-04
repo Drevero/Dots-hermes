@@ -1,10 +1,11 @@
+import type { Ref } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ClayDot, type DotMood } from "../dot/ClayDot";
 import { paletteStyle } from "../dot/palettes";
 import type { GatewayClient } from "../gateway/GatewayClient";
-import type { GatewaySnapshot } from "../gateway/model";
+import { MAIN_CHAT, type GatewaySnapshot } from "../gateway/model";
 import { useGateway } from "../gateway/registry";
-import type { WebAgent } from "../types";
+import type { AccessoryId, PaletteId, SpeciesId, WebAgent } from "../types";
 import { MessageRow, TypingBubble } from "./Bubbles";
 import { dayLabel } from "./format";
 import { Icon } from "./icons";
@@ -28,36 +29,75 @@ function statusLabel(s: GatewaySnapshot): string {
   return t.online;
 }
 
-/** Un brouillon par agent, gardé quand on passe de l'un à l'autre. */
+/** Un brouillon par conversation (agent + dot), gardé quand on passe de l'une à l'autre. */
 const drafts = new Map<string, string>();
 
-/** La conversation d'un agent : en-tête, fil, champ de saisie, teintés par sa palette. */
+/** Nom et mascotte d'un dot : le principal (apparence choisie dans l'app) ou un sous-dot. */
+export interface DotLook {
+  chat: string;
+  name: string;
+  species: SpeciesId;
+  palette: PaletteId;
+  accessory: AccessoryId;
+}
+
+function looksOf(agent: WebAgent, snapshot: GatewaySnapshot): DotLook[] {
+  const main: DotLook = {
+    chat: MAIN_CHAT,
+    name: agent.name || snapshot.serverName || "Hermes",
+    species: agent.species,
+    palette: agent.palette,
+    accessory: agent.accessory,
+  };
+  return [main, ...snapshot.dots.map((d) => ({ chat: d.id, name: d.name, species: d.species, palette: d.palette, accessory: d.accessory }))];
+}
+
+/**
+ * La conversation ouverte d'un agent : en-tête (posé sur le fil, en dégradé du blanc vers le
+ * transparent, comme l'app), fil et champ de saisie, teintés par la palette du dot ouvert.
+ */
 export function ChatView({ agent, client }: { agent: WebAgent; client: GatewayClient }) {
   const snapshot = useGateway(client)!;
-  const name = agent.name || snapshot.serverName || "Hermes";
+  const looks = looksOf(agent, snapshot);
+  const look = looks.find((l) => l.chat === snapshot.activeChat) ?? looks[0];
+  const chatKey = `${agent.session_id}:${look.chat}`;
+  const header = useRef<HTMLElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+
+  // Le fil passe sous l'en-tête : il commence juste en dessous, quelle que soit sa hauteur
+  // (le sélecteur de dots l'agrandit).
+  useLayoutEffect(() => {
+    const el = header.current;
+    if (!el) return;
+    const measure = () => setHeaderHeight(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    // La palette sur un conteneur, `.dot-scope` sur son enfant : sinon les variables posées en ligne
-    // masqueraient les teintes recalculées en mode sombre (theme.css).
-    <div class="chat-palette" style={paletteStyle(agent.palette)}>
-      <section class="chat dot-scope">
-        <ChatHeader agent={agent} client={client} snapshot={snapshot} name={name} />
-        <Thread client={client} snapshot={snapshot} agent={agent} name={name} />
-        <Composer key={agent.session_id} agent={agent} client={client} name={name} />
-      </section>
-    </div>
+    <section class="chat" style={{ ...paletteStyle(look.palette), "--header-h": `${headerHeight}px` }}>
+      <ChatHeader headerRef={header} look={look} looks={looks} client={client} snapshot={snapshot} />
+      <Thread key={chatKey} client={client} snapshot={snapshot} look={look} />
+      <Composer key={chatKey} draftKey={chatKey} client={client} name={look.name} />
+    </section>
   );
 }
 
 function ChatHeader({
-  agent,
+  headerRef,
+  look,
+  looks,
   client,
   snapshot,
-  name,
 }: {
-  agent: WebAgent;
+  headerRef: Ref<HTMLElement>;
+  look: DotLook;
+  looks: DotLook[];
   client: GatewayClient;
   snapshot: GatewaySnapshot;
-  name: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const busy = snapshot.status === "online" && snapshot.activity !== "idle";
@@ -70,11 +110,11 @@ function ChatHeader({
   }, [menuOpen]);
 
   return (
-    <header class="chat-header">
+    <header class="chat-header" ref={headerRef}>
       <div class="chat-header-side" />
       <div class="chat-identity">
-        <ClayDot species={agent.species} palette={agent.palette} accessory={agent.accessory} mood={moodOf(snapshot)} size={56} />
-        <div class="chat-name t-title-sm">{name}</div>
+        <ClayDot species={look.species} palette={look.palette} accessory={look.accessory} mood={moodOf(snapshot)} size={56} />
+        <div class="chat-name t-title-sm">{look.name}</div>
         <div class={`chat-status is-${snapshot.status}${busy ? " is-busy" : ""}`} aria-live="polite">
           {statusLabel(snapshot)}
         </div>
@@ -106,7 +146,7 @@ function ChatHeader({
                 role="menuitem"
                 class="menu-item is-danger"
                 onClick={() => {
-                  if (window.confirm(t.logoutConfirm(name))) client.logout();
+                  if (window.confirm(t.logoutConfirm(looks[0].name))) client.logout();
                 }}
               >
                 <Icon name="logout" size={16} />
@@ -116,7 +156,41 @@ function ChatHeader({
           )}
         </div>
       </div>
+      {looks.length > 1 && <DotSwitcher looks={looks} client={client} snapshot={snapshot} />}
     </header>
+  );
+}
+
+/**
+ * Sélecteur des dots de l'agent : le principal puis ses sous-dots, chacun avec sa mascotte, une
+ * pastille de non lus et un point quand il travaille. Sur l'app, on balaie la mascotte ; ici, on clique.
+ */
+function DotSwitcher({ looks, client, snapshot }: { looks: DotLook[]; client: GatewayClient; snapshot: GatewaySnapshot }) {
+  return (
+    <nav class="dot-switcher" aria-label={t.dots}>
+      {looks.map((l) => {
+        const selected = l.chat === snapshot.activeChat;
+        const info = snapshot.chats[l.chat];
+        const unread = selected ? 0 : info?.unread ?? 0;
+        const busy = snapshot.status === "online" && (info?.activity ?? "idle") !== "idle";
+        return (
+          <button
+            key={l.chat}
+            type="button"
+            class={`dot-chip${selected ? " is-selected" : ""}`}
+            style={paletteStyle(l.palette)}
+            aria-current={selected ? "true" : undefined}
+            title={l.name}
+            onClick={() => client.selectChat(l.chat)}
+          >
+            <ClayDot species={l.species} palette={l.palette} accessory={l.accessory} mood={busy ? "thinking" : "idle"} size={26} shadow={false} />
+            <span class="dot-chip-name">{l.name}</span>
+            {busy && <span class="dot-chip-busy" aria-label={t.thinking} />}
+            {unread > 0 && <span class="dot-chip-unread">{unread > 99 ? "99+" : unread}</span>}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -125,17 +199,7 @@ const STICK_PX = 80;
 /** Distance du haut à partir de laquelle on demande la page précédente. */
 const PREFETCH_PX = 400;
 
-function Thread({
-  client,
-  snapshot,
-  agent,
-  name,
-}: {
-  client: GatewayClient;
-  snapshot: GatewaySnapshot;
-  agent: WebAgent;
-  name: string;
-}) {
+function Thread({ client, snapshot, look }: { client: GatewayClient; snapshot: GatewaySnapshot; look: DotLook }) {
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const firstKey = useRef<string | undefined>(undefined);
@@ -206,8 +270,8 @@ function Thread({
           </div>
         ) : snapshot.messages.length === 0 ? (
           <div class="thread-empty">
-            <ClayDot species={agent.species} palette={agent.palette} accessory={agent.accessory} mood="happy" size={96} shadow />
-            <div class="t-title">{t.empty(name)}</div>
+            <ClayDot species={look.species} palette={look.palette} accessory={look.accessory} mood="happy" size={96} shadow />
+            <div class="t-title">{t.empty(look.name)}</div>
           </div>
         ) : (
           <>
@@ -241,8 +305,8 @@ function Thread({
   );
 }
 
-function Composer({ agent, client, name }: { agent: WebAgent; client: GatewayClient; name: string }) {
-  const [draft, setDraft] = useState(() => drafts.get(agent.session_id) ?? "");
+function Composer({ draftKey, client, name }: { draftKey: string; client: GatewayClient; name: string }) {
+  const [draft, setDraft] = useState(() => drafts.get(draftKey) ?? "");
   const field = useRef<HTMLTextAreaElement>(null);
 
   // Hauteur ajustée au contenu, jusqu'à ~8 lignes, puis défilement interne.
@@ -260,7 +324,7 @@ function Composer({ agent, client, name }: { agent: WebAgent; client: GatewayCli
 
   function update(value: string) {
     setDraft(value);
-    drafts.set(agent.session_id, value);
+    drafts.set(draftKey, value);
   }
 
   function submit() {

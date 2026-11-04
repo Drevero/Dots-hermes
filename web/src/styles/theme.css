@@ -1,6 +1,6 @@
 /*
  * Charte de l'app Android (ui/theme/Color.kt, Theme.kt, Type.kt) traduite en variables CSS.
- * Les neutres « Ink » suivent les couleurs système iOS ; la palette du dot (--dot-*) teinte tout,
+ * Thème clair uniquement, comme demandé pour le web. Les neutres « Ink » suivent les couleurs système iOS ; la palette du dot (--dot-*) teinte tout,
  * elle est posée sur l'élément racine du chat par `paletteStyle()` (src/dot/palettes.ts).
  */
 :root {
@@ -31,39 +31,7 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ink-primary: #f2f2f7;
-    --ink-secondary: #98989f;
-    --ink-tertiary: #55555b;
-    --ink-separator: #2e2e33;
-    --ink-fill: #26262b;
-    --ink-agent-bubble: #26262b;
-    --ink-grouped: #0b0b0d;
-    --ink-surface: #0e0e11;
-    --ink-raised: #1c1c20;
-    --ink-success: #3dd26a;
-    --ink-warning: #ffa62b;
-    --ink-danger: #ff5a50;
-    color-scheme: dark;
-  }
-}
 
-:root[data-theme="dark"] {
-  --ink-primary: #f2f2f7;
-  --ink-secondary: #98989f;
-  --ink-tertiary: #55555b;
-  --ink-separator: #2e2e33;
-  --ink-fill: #26262b;
-  --ink-agent-bubble: #26262b;
-  --ink-grouped: #0b0b0d;
-  --ink-surface: #0e0e11;
-  --ink-raised: #1c1c20;
-  --ink-success: #3dd26a;
-  --ink-warning: #ffa62b;
-  --ink-danger: #ff5a50;
-  color-scheme: dark;
-}
 
 *,
 *::before,
@@ -123,17 +91,4 @@ button {
 :focus-visible {
   outline: 2px solid var(--dot-base);
   outline-offset: 2px;
-}
-
-/* Conteneur teinté par la palette d'un agent. En sombre (Theme.kt) : pastel = 26 % de la couleur sur
-   #1c1c20, accent profond = couleur éclaircie de 30 %. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .dot-scope {
-    --dot-light: color-mix(in srgb, var(--dot-base) 26%, #1c1c20);
-    --dot-deep: color-mix(in srgb, var(--dot-base) 70%, #ffffff);
-  }
-}
-:root[data-theme="dark"] .dot-scope {
-  --dot-light: color-mix(in srgb, var(--dot-base) 26%, #1c1c20);
-  --dot-deep: color-mix(in srgb, var(--dot-base) 70%, #ffffff);
 }

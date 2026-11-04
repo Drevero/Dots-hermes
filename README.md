@@ -521,9 +521,11 @@ cd web && npm install && npm run dev
 ```
 
 `npm run dev` also serves an in-memory relay, so pairing works without Upstash (allow
-`http://localhost:5173` on a test gateway). Phase 1 covers the main conversation: streaming replies,
-tool steps, approvals, clarifying questions, reactions, files and voice notes to download or play.
-Sub-dots, the Activity view, the live screen and sending voice notes or files are still phone-only.
+`http://localhost:5173` on a test gateway). The web app covers the main conversation and the
+sub-dots (switch between them from the row of mascots under the header): streaming replies, tool
+steps, approvals, clarifying questions, reactions, files and voice notes to download or play.
+Creating sub-dots, group rooms, the Activity view, the live screen and sending voice notes or files
+are still phone-only.
 
 ---
 

@@ -14,6 +14,7 @@ The project has two parts that work together:
 |---|---|---|
 | **Android app** | Kotlin + Jetpack Compose client | [`app/`](app) |
 | **Gateway plugin** | A Hermes platform plugin (`dots-platform`) that exposes one authenticated WebSocket | [`server/hermes-plugin-dots/`](server/hermes-plugin-dots) |
+| **Web app** *(experimental)* | A static Preact site, paired with the phone by QR code, that talks to your gateways directly | [`web/`](web) |
 
 The app speaks **English** and **French** and follows your phone's language: see [Languages](#languages).
 
@@ -37,6 +38,7 @@ The app speaks **English** and **French** and follows your phone's language: see
 - [4. Connect the app to your gateway](#4-connect-the-app-to-your-gateway)
 - [Optional: push notifications](#optional-push-notifications)
 - [Optional: voice notes](#optional-voice-notes)
+- [Optional: web app](#optional-web-app)
 - [Updating](#updating)
 - [Releases (CI)](#releases-ci)
 - [Troubleshooting](#troubleshooting)
@@ -483,6 +485,48 @@ On a tight server, use `base`, or add some swap.
 
 ---
 
+## Optional: web app
+
+Chat with your agents from a computer, with the same mascots and colours. The web app is a static
+site (`web/`, ~60 KB gzipped) that you host yourself, for example on Vercel. It has **no backend of
+its own**: the browser opens a WebSocket straight to each of your gateways.
+
+**Pairing by QR code.** The page shows a QR code that rotates every 30 seconds. Scan it from the
+phone app: the phone asks each gateway for a token dedicated to this browser, encrypts the list of
+agents for the browser's one-time key and drops it on a tiny relay (one Vercel function and an
+Upstash Redis key, kept 120 s and erased when read). The relay only ever sees ciphertext, and your
+`DOTS_TOKEN` never leaves the phone. Every browser can be logged out from the phone. Details:
+[docs/appairage-web.md](docs/appairage-web.md).
+
+**Deploy on Vercel**
+
+1. Import this repository in Vercel and set **Root Directory** to `web`. The Vite preset is detected;
+   `web/vercel.json` adds the SPA rewrite and a strict Content-Security-Policy.
+2. In *Storage* → *Marketplace*, add **Upstash Redis** (free tier) to the project: it injects
+   `KV_REST_API_URL` and `KV_REST_API_TOKEN`, which the relay (`web/api/pair.ts`) reads.
+3. On each gateway, allow the site's origin, then restart the gateway:
+
+```bash
+bash server/install.sh --web-origin https://your-app.vercel.app
+```
+
+   (or add `DOTS_WEB_ORIGINS=https://your-app.vercel.app` to `~/.hermes/.env`). Without it, every
+   browser is refused: the gateway checks the `Origin` header of each WebSocket.
+4. Open the site, then scan its QR code from the phone app.
+
+**Run it locally**
+
+```bash
+cd web && npm install && npm run dev
+```
+
+`npm run dev` also serves an in-memory relay, so pairing works without Upstash (allow
+`http://localhost:5173` on a test gateway). Phase 1 covers the main conversation: streaming replies,
+tool steps, approvals, clarifying questions, reactions, files and voice notes to download or play.
+Sub-dots, the Activity view, the live screen and sending voice notes or files are still phone-only.
+
+---
+
 ## Updating
 
 ```bash
@@ -582,6 +626,9 @@ Keep `release.jks` and its passwords safe: losing them means every user must rei
 - Keep the Firebase service-account key on the server only (`chmod 600`). It must never be shipped in
   the app or committed.
 - Sub-dot conversations are deleted from the gateway when you close the dot.
+- **Web app**: browsers get their own revocable tokens (only their SHA-256 is stored on the gateway),
+  and only origins listed in `DOTS_WEB_ORIGINS` may connect. Only scan a QR code shown on your own
+  screen: whoever displays the code you scan receives access to your agents.
 
 ---
 
@@ -597,6 +644,7 @@ app/                          Android app (Kotlin, Jetpack Compose)
     └── ui/                   chat, mascots, sub-dots, activity, live screen, theme
 server/hermes-plugin-dots/    Hermes platform plugin (aiohttp WebSocket, SQLite history, FCM)
 server/install.sh             one-command plugin installer / updater
+web/                          web app (Vite + Preact), pairing relay in web/api/
 .github/workflows/            release pipeline (APK built and published on push to main)
 design/mascotte/              mascot renderer (Python) and renders
 design/mockups/               screenshot mockups generator
@@ -616,6 +664,7 @@ Run the unit tests with:
 
 - [Gateway protocol](docs/protocole-gateway.md): every frame, history, attachments, live screen,
   takeover, sub-dots, group room, push (French).
+- [Web pairing](docs/appairage-web.md): QR code, encryption, relay, web sessions (French).
 
 ---
 

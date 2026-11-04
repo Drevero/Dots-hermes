@@ -408,4 +408,49 @@
         <item quantity="many">%1$d invités au plus.</item>
         <item quantity="other">%1$d invités au plus.</item>
     </plurals>
+    <!-- App web : appairage d'un navigateur par QR code (docs/appairage-web.md) -->
+    <string name="web_section">App web</string>
+    <string name="web_connect_row">Connecter un navigateur</string>
+    <string name="web_sessions_row">Sessions web</string>
+    <string name="web_scan_title">Connecter un navigateur</string>
+    <string name="web_scan_hint">Ouvre l\'app web Dots sur ton ordinateur et vise le QR code qu\'elle affiche.</string>
+    <string name="web_camera_title">Scanne le QR code de l\'app web</string>
+    <string name="web_camera_rationale">Hermes n\'utilise l\'appareil photo que pour lire le QR code affiché par l\'app web. Rien n\'est enregistré ni envoyé.</string>
+    <string name="web_camera_blocked">L\'accès à l\'appareil photo est désactivé pour Hermes. Autorise-le dans les réglages de l\'app pour scanner le QR code.</string>
+    <string name="web_camera_allow">Autoriser l\'appareil photo</string>
+    <string name="web_camera_settings">Ouvrir les réglages</string>
+    <string name="web_qr_not_pairing">Ce QR code ne vient pas de l\'app web Dots.</string>
+    <string name="web_qr_unsupported">Ce QR code vient d\'une app web plus récente : mets d\'abord Hermes à jour.</string>
+    <string name="web_qr_insecure">Refusé : l\'app web doit être servie en https.</string>
+    <string name="web_qr_malformed">QR code illisible. Recharge la page de l\'app web et scanne à nouveau.</string>
+    <string name="web_confirm_title">Connecter un navigateur sur %1$s ?</string>
+    <string name="web_confirm_agents">Agents transmis à ce navigateur</string>
+    <string name="web_confirm_offline">Hors ligne : ne sera pas transmis</string>
+    <string name="web_confirm_none">Aucun agent n\'est connecté en ce moment : rien à transmettre.</string>
+    <string name="web_confirm_warning">Ne scanne qu\'un QR code affiché sur ton propre écran. Ce navigateur pourra parler à ces agents jusqu\'à ce que tu le révoques.</string>
+    <string name="web_connect">Connecter</string>
+    <string name="web_working">Connexion du navigateur sur %1$s…</string>
+    <string name="web_success_title">Navigateur connecté</string>
+    <string name="web_success_text">%1$s est maintenant utilisable depuis %2$s.</string>
+    <string name="web_failed_title">Navigateur non connecté</string>
+    <string name="web_error_nothing">Aucun agent n\'a pu être transmis à ce navigateur.</string>
+    <string name="web_error_expired">Ce QR code a expiré ou a déjà servi. Scanne le nouveau qu\'affiche l\'app web.</string>
+    <string name="web_error_invalid">L\'app web a refusé ce QR code. Recharge la page et scanne à nouveau.</string>
+    <string name="web_error_network">Impossible de joindre %1$s. Vérifie ta connexion et réessaie avec un nouveau QR code.</string>
+    <string name="web_issues_title">Non transmis</string>
+    <string name="web_issue_offline">%1$s est hors ligne : non transmis.</string>
+    <string name="web_issue_origin">%1$s ne fait pas confiance à %2$s. Sur ce gateway, ajoute DOTS_WEB_ORIGINS=%2$s (ou lance install.sh avec --web-origin %2$s), redémarre-le, puis scanne à nouveau.</string>
+    <string name="web_issue_unsupported">%1$s : son plugin dots est trop ancien pour l\'app web. Mets-le à jour sur le gateway.</string>
+    <string name="web_issue_no_reply">%1$s n\'a pas répondu à temps : non transmis.</string>
+    <string name="web_done">Terminé</string>
+    <string name="web_scan_again">Scanner à nouveau</string>
+    <string name="web_sessions_title">Sessions web</string>
+    <string name="web_sessions_hint">Chaque navigateur a son propre jeton, distinct de celui du téléphone. Le révoquer coupe aussitôt sa connexion.</string>
+    <string name="web_sessions_loading">Chargement…</string>
+    <string name="web_sessions_empty">Aucun navigateur connecté.</string>
+    <string name="web_sessions_offline">Agent hors ligne : liste indisponible.</string>
+    <string name="web_session_seen">vu %1$s</string>
+    <string name="web_revoke">Révoquer</string>
+    <string name="web_revoke_title">Révoquer ce navigateur ?</string>
+    <string name="web_revoke_text">« %1$s » sera aussitôt déconnecté de %2$s. Il lui faudra un nouveau QR code pour revenir.</string>
 </resources>

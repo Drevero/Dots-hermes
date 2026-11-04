@@ -38,6 +38,9 @@ import app.dotshermes.ui.activity.ActivitySheet
 import app.dotshermes.ui.screen.ScreenViewer
 import app.dotshermes.ui.connect.ConnectScreen
 import app.dotshermes.ui.agents.AgentMenu
+import app.dotshermes.ui.webpair.WebPairScreen
+import app.dotshermes.ui.webpair.WebPairViewModel
+import app.dotshermes.ui.webpair.WebSessionsSheet
 import app.dotshermes.ui.theme.DotsTheme
 import androidx.compose.ui.res.stringResource
 import app.dotshermes.R
@@ -73,6 +76,14 @@ fun HermesApp(
     var activityOpen by rememberSaveable { mutableStateOf(false) }
     var screenOpen by rememberSaveable { mutableStateOf(false) }
     var screenTakeover by rememberSaveable { mutableStateOf(false) }
+    // App web : scanner du QR code d'un navigateur, et liste des navigateurs appairés.
+    var webPairOpen by rememberSaveable { mutableStateOf(false) }
+    var webSessionsOpen by rememberSaveable { mutableStateOf(false) }
+    val webPair: WebPairViewModel = viewModel { WebPairViewModel(AppContainer.agents, AppContainer.webPairer) }
+    fun openWebPair() {
+        webPair.reset()
+        webPairOpen = true
+    }
     val look by viewModel.activeLook.collectAsStateWithLifecycle()
     val dots by viewModel.dots.collectAsStateWithLifecycle()
     val activeChat by viewModel.activeChat.collectAsStateWithLifecycle()
@@ -275,6 +286,14 @@ fun HermesApp(
                             viewModel.addAgent()
                         },
                         multipleAgents = !demo && agentList.size > 1,
+                        onConnectBrowser = {
+                            agentSheetOpen = false
+                            openWebPair()
+                        },
+                        onBrowserSessions = {
+                            agentSheetOpen = false
+                            webSessionsOpen = true
+                        },
                     )
                 }
             }
@@ -291,7 +310,24 @@ fun HermesApp(
                     viewModel.addAgent()
                 },
                 onDismiss = { agentMenuOpen = false },
+                onConnectBrowser = {
+                    agentMenuOpen = false
+                    openWebPair()
+                },
             )
+        }
+        if (webSessionsOpen) {
+            WebSessionsSheet(
+                viewModel = webPair,
+                onConnectBrowser = {
+                    webSessionsOpen = false
+                    openWebPair()
+                },
+                onDismiss = { webSessionsOpen = false },
+            )
+        }
+        if (webPairOpen) {
+            WebPairScreen(webPair, appearance, onClose = { webPairOpen = false })
         }
         if (updateDialog) {
             UpdateDialog(

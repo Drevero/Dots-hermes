@@ -26,6 +26,7 @@
 #   --voice [MODEL]      installe la transcription locale (faster-whisper) ; modèle : tiny|base|small (défaut : small)
 #   --stt-language LANG  langue de la transcription (défaut : fr ; "" = détection automatique)
 #   --fcm-key FILE       clé JSON du compte de service Firebase, pour les notifications push
+#   --web-origin URL     origine de l'app web autorisée (ex. https://dots.vercel.app) ; répétable
 #   --rotate-token       génère un nouveau jeton même s'il en existe déjà un (l'app devra être ré-appairée)
 #   --no-restart         ne redémarre pas le gateway (à faire soi-même ensuite)
 #   --dry-run            affiche ce qui serait fait, sans rien modifier
@@ -49,6 +50,7 @@ BIND_GIVEN=0
 VOICE_MODEL=""
 STT_LANGUAGE="fr"
 FCM_KEY=""
+WEB_ORIGINS=""
 ROTATE_TOKEN=0
 RESTART=1
 DRY_RUN=0
@@ -85,6 +87,7 @@ while [ $# -gt 0 ]; do
             else VOICE_MODEL="small"; shift; fi ;;
         --stt-language) STT_LANGUAGE="${2-}"; shift 2 ;;
         --fcm-key) FCM_KEY="${2:?--fcm-key attend un fichier}"; shift 2 ;;
+        --web-origin) WEB_ORIGINS="${WEB_ORIGINS:+$WEB_ORIGINS,}${2:?--web-origin attend une URL https://…}"; shift 2 ;;
         --rotate-token) ROTATE_TOKEN=1; shift ;;
         --no-restart) RESTART=0; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
@@ -209,6 +212,11 @@ fi
 [ -n "$(env_get DOTS_ALLOWED_USERS)" ] || env_set DOTS_ALLOWED_USERS owner
 [ -n "$(env_get DOTS_HOME_CHANNEL)" ] || env_set DOTS_HOME_CHANNEL owner
 [ -z "$AGENT_NAME" ] || env_set DOTS_AGENT_NAME "$AGENT_NAME"
+# App web (appairage par QR) : sans origine autorisée, le gateway refuse tout navigateur.
+if [ -n "$WEB_ORIGINS" ]; then
+    env_set DOTS_WEB_ORIGINS "$WEB_ORIGINS"
+    ok "app web autorisée depuis $WEB_ORIGINS"
+fi
 run chmod 600 "$ENV_FILE"
 ok "écoute sur $BIND, propriétaire unique « owner »"
 

@@ -24,10 +24,12 @@ Pixel (app Hermes) ──wss://<domaine>/dots/ws──▶ Caddy (TLS Let's Encry
 | `DOTS_BIND` | Adresse d'écoute, `127.0.0.1:8787` par défaut |
 | `DOTS_ALLOWED_USERS` | `owner` |
 | `DOTS_HOME_CHANNEL` | `owner` (cible des messages proactifs et des tâches cron) |
+| `DOTS_WEB_ORIGINS` | Origines de l'app web autorisées, séparées par des virgules (`https://dots.vercel.app`). Vide : aucun navigateur accepté |
 
 ## Connexion
 
 - URL : `wss://<domaine>/dots/ws`. L'authentification passe par l'en-tête `Authorization: Bearer <DOTS_TOKEN>`. Un jeton invalide reçoit un HTTP 401 avant l'upgrade.
+- Navigateur (app web) : jeton web propre au navigateur, offert en sous-protocole (`dots.v1`, `dots.token.<jeton>`), `Origin` vérifiée contre `DOTS_WEB_ORIGINS`. Voir [appairage-web.md](appairage-web.md).
 - Il n'y a qu'**une conversation** : `chat_id = user_id = "owner"`.
 - Un ping WebSocket est envoyé toutes les 30 s. L'app se reconnecte avec un backoff de 1, 2, 5, 10 puis 30 s.
 
@@ -57,7 +59,10 @@ Toutes les trames sont du JSON avec un champ `type`. Les identifiants de message
 | `cron_action` | `id`, `action` (`pause`, `resume`, `run`) | Pilote une tâche planifiée, renvoie la vue Activité |
 | `stop` | — | Interrompt le tour en cours (`/stop`, non écrit dans la conversation) |
 | `presence` | `foreground` | L'app passe au premier plan / en arrière-plan (pilote les push) |
-| `push_token` | `token` | Nouveau jeton FCM de l'appareil (4 gardés au plus, dans `push_tokens.json`) |
+| `push_token` | `token` | Nouveau jeton FCM de l'appareil (4 gardés au plus, dans `push_tokens.json`) ; ignoré venant d'un navigateur |
+| `web_token_create` | `ref`, `origin`, `label` | Téléphone seulement : crée le jeton d'un navigateur appairé par QR ([appairage-web.md](appairage-web.md)) |
+| `web_sessions_get` | — | Téléphone seulement : liste les sessions web |
+| `web_revoke` | `id` (facultatif pour un navigateur : sa propre session) | Révoque une session web et ferme ses sockets (code 4401) |
 
 ### Gateway → app
 
@@ -83,7 +88,9 @@ Toutes les trames sont du JSON avec un champ `type`. Les identifiants de message
 | `usage` | `from`, `to`, `hours[]` = `[heure UTC depuis l'époque, tokens, messages]` | Réponse à `usage_get` ; seules les heures actives y figurent |
 | `tool` | `id` (tool_call_id), `turn`, `name`, `kind`, `label`, `detail`, `state` (`running`), `ts` | Hook plugin `pre_tool_call`, filtré sur `HERMES_SESSION_PLATFORM == "dots"` |
 | `tool_update` | `id`, `state` (`done` / `error`), `duration_ms` | Hook `post_tool_call` ; l'historique garde l'état final dans l'événement `tool` |
-| `error` | `code`, `message` | Trame invalide, jeton refusé… |
+| `web_token` | `ref`, `token`, `id` ou `error` (`origin_not_allowed`), `origin` | Réponse à `web_token_create` |
+| `web_sessions` | `sessions[]` = `{id, label, origin, created_at, last_seen}` | Réponse à `web_sessions_get` / `web_revoke` |
+| `error` | `code`, `message` | Trame invalide, jeton refusé, `forbidden` (trame réservée au téléphone)… |
 
 ## Messages hors ligne
 
@@ -125,7 +132,7 @@ Les lignes de progression texte sont coupées pour cette plateforme (`display.pl
 
 ## Plusieurs apps connectées
 
-Le plugin accepte plusieurs WebSockets en même temps (téléphone, réponse rapide depuis une notification, autre appareil) : les événements de conversation partent vers toutes, les réponses aux demandes (`welcome`, `audio`, `file_data`, `activity_snapshot`) vers celle qui a demandé. Chacune déclare sa présence ; le push part seulement si aucune n'est au premier plan.
+Le plugin accepte plusieurs WebSockets en même temps (téléphone, réponse rapide depuis une notification, autre appareil, navigateur) : les événements de conversation partent vers toutes, y compris les messages du propriétaire (vers toutes sauf celle qui l'a écrit, qui a déjà son `ack`), les réponses aux demandes (`welcome`, `audio`, `file_data`, `activity_snapshot`) vers celle qui a demandé. Chacune déclare sa présence ; le push part seulement si aucune n'est au premier plan.
 
 ## Pièces jointes
 

@@ -4,10 +4,13 @@ Protocol: docs/protocole-gateway.md in the app repository. The server listens on
 (127.0.0.1:8787) and is meant to sit behind a TLS reverse proxy. Env: DOTS_TOKEN (required),
 DOTS_BIND, DOTS_ALLOWED_USERS, DOTS_HOME_CHANNEL, DOTS_FCM_CREDENTIALS (service account JSON,
 default ``~/.hermes/platforms/dots/fcm-service-account.json``; push is off when it is missing),
-DOTS_AGENT_ID / DOTS_AGENT_NAME (identity of this agent in a multi-agent app, see ``_agent_identity``).
+DOTS_AGENT_ID / DOTS_AGENT_NAME (identity of this agent in a multi-agent app, see ``_agent_identity``),
+DOTS_WEB_ORIGINS (comma-separated origins of the web app, e.g. ``https://dots.vercel.app``; the web app
+is refused while it is unset).
 
 Identity: the bearer token is the trust boundary; every authenticated client is the single
-``owner`` user, and the main chat is ``chat_id == "owner"``. One plugin serves one Hermes profile:
+``owner`` user, and the main chat is ``chat_id == "owner"``. Browsers never see DOTS_TOKEN: the phone
+mints them a revocable web token of their own (``web_token_create``, see ``_WebTokens``). One plugin serves one Hermes profile:
 several independent agents are several profiles, each with its own gateway, token and port.
 """
 
@@ -18,6 +21,7 @@ import hmac
 import json
 import logging
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -48,6 +52,14 @@ OWNER = "owner"
 DEFAULT_BIND = "127.0.0.1:8787"
 WS_PATH = "/dots/ws"
 SEND_PATH = "/dots/send"
+# Web app: browsers cannot set an Authorization header on a WebSocket, so they offer two subprotocols,
+# ``dots.v1`` (echoed back) and ``dots.token.<web token>``. A refused web token still gets the upgrade,
+# then a close with WEB_UNAUTHORIZED: a browser cannot read the status of a refused handshake.
+WEB_SUBPROTOCOL = "dots.v1"
+WEB_TOKEN_PROTOCOL = "dots.token."
+WEB_UNAUTHORIZED = 4401
+MAX_WEB_TOKENS = 20
+WEB_LABEL_MAX = 80
 REPLAY_LIMIT = 600  # events replayed to a reconnecting app; beyond, it gets the latest page and resets
 INITIAL_PAGE = 120  # events sent on a fresh connection; older ones come through history_page
 MAX_PAGE = 200
@@ -188,6 +200,17 @@ def _agent_identity(extra: Optional[dict] = None) -> tuple[str, str]:
 def _parse_bind(value: str) -> tuple[str, int]:
     host, _, port = (value or DEFAULT_BIND).rpartition(":")
     return host or "127.0.0.1", int(port)
+
+
+def _web_origins(extra: Optional[dict] = None) -> frozenset[str]:
+    """Origins allowed to open a socket from a browser (``https://dots.vercel.app``), normalised."""
+    raw = _extra_or_secret(extra or {}, "web_origins", "DOTS_WEB_ORIGINS") or ""
+    return frozenset(_origin(o) for o in str(raw).split(",") if _origin(o))
+
+
+def _origin(value: Any) -> str:
+    """``HTTPS://Dots.Vercel.app/`` -> ``https://dots.vercel.app``: what a browser sends in ``Origin``."""
+    return str(value or "").strip().rstrip("/").lower()
 
 
 def check_requirements() -> bool:
@@ -455,6 +478,68 @@ def _describe_tool(name: str, args: Any, lang: str = DEFAULT_LANGUAGE) -> tuple[
     return kind, label, detail
 
 
+class _WebTokens:
+    """Tokens the phone mints for browsers, one per paired browser, revocable one by one.
+
+    Only a SHA-256 of each token is kept on disk (``web_tokens.json``, mode 600): the file alone
+    does not open the gateway. DOTS_TOKEN stays the master key and never leaves the phone.
+    """
+
+    def __init__(self, path: Path):
+        self._path = path
+        try:
+            self._items: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self._items = []
+
+    @staticmethod
+    def _digest(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(json.dumps(self._items), encoding="utf-8")
+        try:
+            self._path.chmod(0o600)
+        except OSError:
+            pass
+
+    def create(self, label: str, origin: str) -> tuple[str, str]:
+        """A fresh token and its id; beyond MAX_WEB_TOKENS the least recently used one is dropped."""
+        token = secrets.token_urlsafe(32)  # 43 URL-safe characters: valid in a subprotocol name
+        session_id = uuid.uuid4().hex[:12]
+        now = _now_ms()
+        self._items.append({"id": session_id, "hash": self._digest(token), "label": label[:WEB_LABEL_MAX],
+                            "origin": origin, "created_at": now, "last_seen": now})
+        self._items = sorted(self._items, key=lambda i: i.get("last_seen", 0))[-MAX_WEB_TOKENS:]
+        self._save()
+        return token, session_id
+
+    def check(self, token: str) -> Optional[str]:
+        """Id of the web session this token opens, or None; refreshes its last use."""
+        if not token:
+            return None
+        digest = self._digest(token)
+        for item in self._items:
+            if hmac.compare_digest(item["hash"], digest):
+                item["last_seen"] = _now_ms()
+                self._save()
+                return item["id"]
+        return None
+
+    def revoke(self, session_id: str) -> bool:
+        kept = [i for i in self._items if i["id"] != session_id]
+        if len(kept) == len(self._items):
+            return False
+        self._items = kept
+        self._save()
+        return True
+
+    def public(self) -> list[dict[str, Any]]:
+        """What the phone lists: never the hashes."""
+        return [{k: i.get(k) for k in ("id", "label", "origin", "created_at", "last_seen")} for i in self._items]
+
+
 class _Push:
     """FCM HTTP v1 sender. Data-only, high-priority messages: the app renders the notification."""
 
@@ -531,6 +616,7 @@ class DotsAdapter(BasePlatformAdapter):
         super().__init__(config=config, platform=Platform("dots"))
         extra = config.extra or {}
         self._token = _token(extra)
+        self._web_origins = _web_origins(extra)
         self._agent_id, self._agent_name = _agent_identity(extra)
         self._host, self._port = _parse_bind(_extra_or_secret(extra, "bind", "DOTS_BIND", DEFAULT_BIND))
         self._history = _History(get_hermes_home() / "platforms" / "dots" / "history.db")
@@ -545,10 +631,13 @@ class DotsAdapter(BasePlatformAdapter):
         self._room_seen: dict[str, int] = {}
         self._room_current: dict[str, str] = {}  # host chat -> session speaking now (a speaker's, or the host's)
         self._dedup = MessageDeduplicator(max_size=1000, ttl_seconds=600)
+        # Last acks by client_id: an app that lost an ack in a disconnect and sends again gets it back.
+        self._acks: dict[str, dict[str, Any]] = {}
         self._runner: Optional["web.AppRunner"] = None
-        # Every connected app (phone, quick reply from a notification, a second device): each one
-        # says whether it is on screen and whether it watches the browser.
-        self._clients: dict["web.WebSocketResponse", dict[str, bool]] = {}
+        # Every connected app (phone, quick reply from a notification, a second device, a browser): each
+        # one says whether it is on screen and whether it watches the browser; ``web`` is the id of a
+        # browser's web token (None for the phone, which holds DOTS_TOKEN).
+        self._clients: dict["web.WebSocketResponse", dict[str, Any]] = {}
         self._activities: dict[str, str] = {}  # chat -> idle | thinking | typing
         self._approvals: dict[str, str] = {}  # approval_id -> session_key
         self._turns: dict[str, str] = {}  # chat -> id of the user message being answered
@@ -564,6 +653,7 @@ class DotsAdapter(BasePlatformAdapter):
             self._lang = DEFAULT_LANGUAGE
         creds = _extra_or_secret(extra, "fcm_credentials", "DOTS_FCM_CREDENTIALS", "") or str(home / "fcm-service-account.json")
         self._push_sender = _Push(Path(creds).expanduser(), home / "push_tokens.json")
+        self._web_tokens = _WebTokens(home / "web_tokens.json")
         self._voice_dir = home / "voice"
         self._voice_dir.mkdir(parents=True, exist_ok=True)
         self._voice_turns: set[str] = set()  # user voice-message ids whose STT echo is still due
@@ -625,17 +715,40 @@ class DotsAdapter(BasePlatformAdapter):
     # -- HTTP / WebSocket ------------------------------------------------------------------------
 
     def _authorized(self, request: "web.Request") -> bool:
+        """The master token in ``Authorization`` (the phone, the loopback cron sender)."""
         header = request.headers.get("Authorization", "")
         supplied = header[7:].strip() if header.lower().startswith("bearer ") else ""
         return bool(supplied) and hmac.compare_digest(supplied, self._token)
 
+    @staticmethod
+    def _offered_web_token(request: "web.Request") -> Optional[str]:
+        """The web token a browser offers as a ``dots.token.<token>`` subprotocol, if any."""
+        offered = [p.strip() for p in request.headers.get("Sec-WebSocket-Protocol", "").split(",")]
+        return next((p[len(WEB_TOKEN_PROTOCOL):] for p in offered if p.startswith(WEB_TOKEN_PROTOCOL)), None)
+
     async def _handle_ws(self, request: "web.Request") -> "web.StreamResponse":
-        if not self._authorized(request):
-            return web.json_response({"type": "error", "code": "unauthorized"}, status=401)
-        ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=MAX_FILE_BYTES * 4 // 3 + (64 << 10))
+        # Browsers always send Origin, native apps don't: a page that is not the owner's web app cannot
+        # open a socket from someone's browser, whatever it holds.
+        origin = request.headers.get("Origin")
+        if origin is not None and _origin(origin) not in self._web_origins:
+            logger.warning("[%s] Refused socket from origin %r (see DOTS_WEB_ORIGINS)", self.name, origin)
+            return web.json_response({"type": "error", "code": "origin_not_allowed"}, status=403)
+        web_token = self._offered_web_token(request)
+        web_session: Optional[str] = None
+        if web_token is None:
+            if not self._authorized(request):
+                return web.json_response({"type": "error", "code": "unauthorized"}, status=401)
+        else:
+            web_session = self._web_tokens.check(web_token)
+        ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=MAX_FILE_BYTES * 4 // 3 + (64 << 10),
+                                   protocols=(WEB_SUBPROTOCOL,) if web_token is not None else ())
         await ws.prepare(request)
-        self._clients[ws] = {"foreground": True, "watch": False, "takeover": False}
-        logger.info("[%s] App connected (%d open)", self.name, len(self._clients))
+        if web_token is not None and web_session is None:
+            await ws.send_str(json.dumps({"type": "error", "code": "unauthorized"}))
+            await ws.close(code=WEB_UNAUTHORIZED, message=b"unauthorized")
+            return ws
+        self._clients[ws] = {"foreground": True, "watch": False, "takeover": False, "web": web_session}
+        logger.info("[%s] %s connected (%d open)", self.name, "Browser" if web_session else "App", len(self._clients))
         try:
             async for msg in ws:
                 if msg.type != WSMsgType.TEXT:
@@ -683,13 +796,34 @@ class DotsAdapter(BasePlatformAdapter):
             except (ConnectionResetError, RuntimeError) as exc:
                 logger.debug("[%s] Push failed: %s", self.name, exc)
 
+    async def _ack(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        self._acks[frame["client_id"]] = frame
+        if len(self._acks) > 1000:
+            self._acks.pop(next(iter(self._acks)))
+        await self._push(frame, ws)
+
+    async def _is_duplicate(self, client_id: str, ws: "web.WebSocketResponse") -> bool:
+        """A message already received (retry after a lost ack): send its ack again, don't handle it twice."""
+        if not self._dedup.is_duplicate(client_id):
+            return False
+        if client_id in self._acks:
+            await self._push(self._acks[client_id], ws)
+        return True
+
+    async def _push_others(self, frame: dict[str, Any], sender: "web.WebSocketResponse") -> None:
+        """An owner message to every app but the one that typed it (which already has it, acked): the
+        phone sees what was written in the browser, live, and the other way round."""
+        for ws in list(self._clients):
+            if ws is not sender:
+                await self._push(frame, ws)
+
     async def _on_frame(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         kind = frame.get("type")
         if kind == "hello":
             self._clients[ws]["foreground"] = bool(frame.get("foreground", True))
             if frame.get("lang"):
                 self._set_language(frame["lang"])
-            if frame.get("push_token"):
+            if frame.get("push_token") and self._clients[ws].get("web") is None:
                 self._push_sender.register(str(frame["push_token"]))
             last_seq = int(frame.get("last_seq") or 0)
             if last_seq > 0:
@@ -754,9 +888,47 @@ class DotsAdapter(BasePlatformAdapter):
         elif kind == "presence":
             self._clients[ws]["foreground"] = bool(frame.get("foreground"))
         elif kind == "push_token":
-            self._push_sender.register(str(frame.get("token") or ""))
+            if self._clients[ws].get("web") is None:  # FCM tokens are the phone's business
+                self._push_sender.register(str(frame.get("token") or ""))
+        elif kind in ("web_token_create", "web_sessions_get", "web_revoke"):
+            await self._on_web_session_frame(kind, frame, ws)
         else:
             await self._push({"type": "error", "code": "unknown_type"}, ws)
+
+    # -- Web sessions (browsers paired by QR code) ----------------------------------------------
+
+    async def _on_web_session_frame(self, kind: str, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Minting and revoking web tokens. Only the phone (master token) may mint or list them; a
+        browser may only revoke its own session (logging out)."""
+        own = self._clients[ws].get("web")
+        if kind == "web_revoke":
+            session_id = str(frame.get("id") or own or "")
+            if own is not None and session_id != own:
+                await self._push({"type": "error", "code": "forbidden"}, ws)
+                return
+            if self._web_tokens.revoke(session_id):
+                for client, state in list(self._clients.items()):
+                    if state.get("web") == session_id and not client.closed:
+                        await client.close(code=WEB_UNAUTHORIZED, message=b"revoked")
+            if own is None:
+                await self._push({"type": "web_sessions", "sessions": self._web_tokens.public()}, ws)
+            return
+        if own is not None:
+            await self._push({"type": "error", "code": "forbidden"}, ws)
+            return
+        if kind == "web_sessions_get":
+            await self._push({"type": "web_sessions", "sessions": self._web_tokens.public()}, ws)
+            return
+        # web_token_create: the phone pairs a browser it scanned. The origin printed in the QR code
+        # must be one this gateway trusts, or the browser could not connect anyway.
+        origin = _origin(frame.get("origin"))
+        if origin not in self._web_origins:
+            await self._push({"type": "web_token", "ref": frame.get("ref"), "error": "origin_not_allowed",
+                              "origin": origin}, ws)
+            return
+        token, session_id = self._web_tokens.create(str(frame.get("label") or "Browser"), origin)
+        logger.info("[%s] Web session %s paired for %s", self.name, session_id, origin)
+        await self._push({"type": "web_token", "ref": frame.get("ref"), "token": token, "id": session_id}, ws)
 
     # -- Chats (main dot + sub-dots) -------------------------------------------------------------
 
@@ -827,7 +999,7 @@ class DotsAdapter(BasePlatformAdapter):
     async def _on_user_message(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         client_id = str(frame.get("client_id") or uuid.uuid4())
         text = str(frame.get("text") or "").strip()
-        if not text or self._dedup.is_duplicate(client_id):
+        if not text or await self._is_duplicate(client_id, ws):
             return
         chat = self._chat_of(frame)
         speakers = self._room_speakers(chat, frame.get("room"))
@@ -835,7 +1007,8 @@ class DotsAdapter(BasePlatformAdapter):
             "type": "message", "id": uuid.uuid4().hex, "role": "user", "text": text, "ts": _now_ms(), "final": True, "chat": chat,
             **({"room": [d["id"] for d in speakers]} if speakers else {}),
         })
-        await self._push({"type": "ack", "client_id": client_id, "id": event["id"], "seq": event["seq"], "ts": event["ts"], "chat": chat}, ws)
+        await self._ack({"type": "ack", "client_id": client_id, "id": event["id"], "seq": event["seq"], "ts": event["ts"], "chat": chat}, ws)
+        await self._push_others(event, ws)
         # A new message replaces a debate still running in this conversation.
         await self._cancel_room(chat, stop_host=False)
         if speakers:
@@ -994,7 +1167,7 @@ class DotsAdapter(BasePlatformAdapter):
         so the gateway's own STT pipeline transcribes it before the agent sees it."""
         client_id = str(frame.get("client_id") or uuid.uuid4())
         mime = str(frame.get("mime") or "audio/mp4")
-        if self._dedup.is_duplicate(client_id) or mime not in VOICE_TYPES:
+        if await self._is_duplicate(client_id, ws) or mime not in VOICE_TYPES:
             return
         try:
             data = base64.b64decode(str(frame.get("audio") or ""), validate=True)
@@ -1013,7 +1186,8 @@ class DotsAdapter(BasePlatformAdapter):
             "final": True, "audio": path.name, "mime": mime, "duration_ms": int(frame.get("duration_ms") or 0),
             "waveform": waveform,
         })
-        await self._push({"type": "ack", "client_id": client_id, "id": event_id, "seq": event["seq"], "ts": event["ts"]}, ws)
+        await self._ack({"type": "ack", "client_id": client_id, "id": event_id, "seq": event["seq"], "ts": event["ts"]}, ws)
+        await self._push_others(event, ws)
         self._voice_turns.add(event_id)
         await self.handle_message(MessageEvent(
             text="", message_type=MessageType.VOICE, source=self._source(chat, event_id), message_id=event_id,
@@ -1045,7 +1219,7 @@ class DotsAdapter(BasePlatformAdapter):
         """Photo or document from the app: kept for replay, cached the Hermes way for the agent."""
         from gateway.platforms.base import cache_media_bytes
         client_id = str(frame.get("client_id") or uuid.uuid4())
-        if self._dedup.is_duplicate(client_id):
+        if await self._is_duplicate(client_id, ws):
             return
         name = Path(str(frame.get("name") or "fichier")).name[:120] or "fichier"
         mime = str(frame.get("mime") or "application/octet-stream")
@@ -1070,7 +1244,8 @@ class DotsAdapter(BasePlatformAdapter):
             "final": True, "file": stored.name, "name": name, "mime": cached.media_type or mime,
             "media": cached.kind, "size": len(data),
         })
-        await self._push({"type": "ack", "client_id": client_id, "id": event_id, "seq": event["seq"], "ts": event["ts"]}, ws)
+        await self._ack({"type": "ack", "client_id": client_id, "id": event_id, "seq": event["seq"], "ts": event["ts"]}, ws)
+        await self._push_others(event, ws)
         await self.handle_message(MessageEvent(
             text=caption, message_type=_MEDIA_MESSAGE_TYPES.get(cached.kind, MessageType.DOCUMENT), source=self._source(chat, event_id),
             message_id=event_id, media_urls=[str(cached.path)], media_types=[event["mime"]], media_text_inlined=[False],

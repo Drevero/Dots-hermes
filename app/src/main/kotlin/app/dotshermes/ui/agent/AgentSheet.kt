@@ -75,6 +75,10 @@ fun AgentSettings(
     updateStatus: String,
     onUpdateRow: () -> Unit,
     onDisconnect: () -> Unit,
+    /** Appairer un autre agent Hermes (un autre profil, un autre gateway). */
+    onAddAgent: () -> Unit = {},
+    /** Plusieurs agents : « Se déconnecter » devient « Retirer cet agent » (les autres restent). */
+    multipleAgents: Boolean = false,
 ) {
     val palette = LocalDotPalette.current
     val connected = connection as? ConnectionState.Connected
@@ -97,6 +101,15 @@ fun AgentSettings(
                 InfoRow(stringResource(R.string.settings_encryption), if (connected?.demo == false) "TLS · Let's Encrypt" else "—")
                 Hairline()
                 InfoRow(stringResource(R.string.settings_source), stringResource(if (connected?.demo == false) R.string.settings_source_gateway else R.string.settings_source_demo))
+                if (connected?.demo == false) {
+                    Hairline()
+                    Text(
+                        stringResource(R.string.agents_add_row),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = palette.deep,
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = onAddAgent).padding(horizontal = 16.dp, vertical = 13.dp),
+                    )
+                }
             }
 
             SectionLabel(stringResource(R.string.settings_mascot))
@@ -150,7 +163,7 @@ fun AgentSettings(
             Spacer(Modifier.height(24.dp))
             GroupedCard {
                 Text(
-                    stringResource(R.string.settings_disconnect),
+                    stringResource(if (multipleAgents) R.string.agents_remove else R.string.settings_disconnect),
                     style = MaterialTheme.typography.labelLarge,
                     color = Ink.Danger,
                     textAlign = TextAlign.Center,

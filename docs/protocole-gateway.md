@@ -165,6 +165,25 @@ Ce que l'utilisateur tape va directement sur la page. Rien ne passe par la conve
 
 Pour une demande d'approbation, l'app affiche une notification à part, avec les boutons « Refuser » et « Approuver ». La décision part par la socket de l'app si elle est connectée, sinon par une connexion éclair qui attend `approval_resolved`. Si la demande est tranchée ailleurs (dans l'app, sur un autre appareil), la notification disparaît.
 
+## Plusieurs agents
+
+Un plugin sert **un** agent : le profil Hermes dans lequel il est installé (`HERMES_HOME`). Pour
+plusieurs agents indépendants, chacun a son profil, donc son gateway, son jeton, son port et sa route
+derrière Caddy. L'app tient une connexion par agent appairé ; rien n'est partagé entre deux
+connexions, et l'isolation (mémoire, outils, skills, identifiants) est celle des profils Hermes.
+
+| Champ | Où | Rôle |
+|---|---|---|
+| `agent_id` | `welcome` | Identifiant stable de l'agent : `DOTS_AGENT_ID`, sinon dérivé du dossier du profil (16 caractères hexadécimaux) |
+| `agent` | `welcome` | Nom affiché par défaut : `DOTS_AGENT_NAME`, sinon le nom du profil (`~/.hermes/profiles/<nom>`), sinon `Hermes` |
+| `agent` | données push | `agent_id` de l'agent qui notifie : l'app y rattache la notification, sa réponse rapide et ses boutons de feu vert |
+| `agent_id` | `GET /dots/health` | Même identifiant, pour vérifier quel profil répond sur un port |
+
+Compatibilité : ces champs sont des ajouts. Une app d'avant les ignore ; une app récente face à un
+plugin d'avant 1.2 range tout dans l'agent unique. Une notification sans `agent`, ou dont l'agent
+est inconnu, n'est affichée que si l'app peut l'attribuer sans ambiguïté (voir `routePush` dans
+`AgentStore.kt`) : une réponse rapide ne doit jamais partir vers un autre agent.
+
 ## Sous-dots
 
 Le dot principal est la conversation `owner`. Chaque sous-dot a sa propre conversation, `dot-<id>`, donc sa propre session Hermes : Hermes isole les sessions privées par `chat_id`, et le contexte n'est pas partagé (vérifié : un mot-code confié à un dot reste inconnu d'un autre). Outils, mémoire et skills restent communs.

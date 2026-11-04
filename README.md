@@ -149,6 +149,7 @@ These work, but rely on Hermes internals or are recent. Expect rough edges.
 | **Sub-dots** | Extra agents next to your main one, each with its own conversation and Hermes session: **temporary** ones for a single mission, **permanent** ones with their own name, specialty, mascot and colour. Swipe the mascot to switch. |
 | **Group room** | From the *+* menu, invite sub-dots into the current conversation: they debate each of your messages for two rounds, each with its mascot above its bubbles, then the conversation's own dot concludes. Each guest speaks in a separate Hermes session, so its private conversation stays untouched. *Stop* ends the whole debate. |
 | **Several devices at once** | The gateway accepts several connected apps and broadcasts the conversation to all of them. |
+| **Several independent agents** | Pair the app with several Hermes profiles (one gateway each) and switch between them by tapping the agent name at the top of the conversation. Each agent keeps its own conversations, sub-dots, notifications and approvals; isolation is enforced by Hermes, since every agent is a separate profile reached with its own token. See [Several agents](#several-agents). |
 
 #### Group room
 
@@ -401,6 +402,32 @@ Your conversation history is loaded from the gateway.
 > [!TIP]
 > Want to look around first? Tap **Essayer en mode démo** on the same screen: a simulated agent shows
 > every kind of message, no gateway needed.
+
+### Several agents
+
+If you run several independent Hermes agents (for example one for work, one for personal finance),
+give each one its own Hermes profile and install the plugin in each profile, on its own port:
+
+```bash
+bash server/install.sh --profile ash   --bind 127.0.0.1:8788 --domain hermes.example.com
+bash server/install.sh --profile grant --bind 127.0.0.1:8789 --domain hermes.example.com
+```
+
+Each profile gets its own token and route (`wss://hermes.example.com/dots/ash/ws`, `…/dots/grant/ws`);
+put one `handle` block per agent in your Caddyfile. In the app, open the agent settings and tap
+**Add an agent** for each extra gateway. From then on, the agent name at the top of the
+conversation has a small arrow: tap it to switch agents. The dots sheet keeps showing only the
+sub-dots of the agent on screen.
+
+- Agents never share anything in the app: one connection, one conversation history, one notification
+  thread each. A quick reply or an approval from a notification always goes back to the agent that
+  sent it.
+- Isolation of memory, tools, skills and credentials comes from Hermes itself: each profile is a
+  separate process and the app reaches it with that profile's token only.
+- Sub-dots and group rooms work as before, inside each agent.
+- With a single agent nothing changes: the switcher only appears from the second agent on, and an
+  existing pairing is kept as your first agent after the update.
+- Routing notifications between agents needs plugin 1.2 or later on every gateway.
 
 ---
 

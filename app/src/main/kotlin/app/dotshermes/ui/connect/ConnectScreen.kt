@@ -47,7 +47,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.dotshermes.data.AgentSummary
 import app.dotshermes.data.model.ConnectionState
+import app.dotshermes.ui.displayName
 import app.dotshermes.data.model.GatewayConfig
 import app.dotshermes.ui.DotAppearance
 import app.dotshermes.ui.components.GroupedCard
@@ -60,17 +62,26 @@ import app.dotshermes.ui.theme.LocalDotPalette
 import androidx.compose.ui.res.stringResource
 import app.dotshermes.R
 
-/** Écran d'appairage avec le gateway d'Hermes (plugin « dots »). */
+/**
+ * Écran d'appairage avec le gateway d'un agent Hermes (plugin « dots »). Sert au premier agent, à
+ * un agent de plus ([adding] : on peut annuler) et à ré-appairer l'agent affiché s'il ne répond plus
+ * ([otherAgents] : on peut alors passer à un autre agent, qui lui est connecté).
+ */
 @Composable
 fun ConnectScreen(
     connection: ConnectionState,
     appearance: DotAppearance,
     initialUrl: String,
     onConnect: (url: String, token: String) -> Unit,
+    adding: Boolean = false,
+    onCancelAdd: () -> Unit = {},
+    otherAgents: List<AgentSummary> = emptyList(),
+    onSelectAgent: (String) -> Unit = {},
 ) {
     val palette = LocalDotPalette.current
-    var url by rememberSaveable { mutableStateOf(initialUrl) }
-    var token by rememberSaveable { mutableStateOf("") }
+    // Clé : l'adresse proposée change quand on passe d'un agent à l'autre ou à un ajout.
+    var url by rememberSaveable(initialUrl, adding) { mutableStateOf(initialUrl) }
+    var token by rememberSaveable(initialUrl, adding) { mutableStateOf("") }
     val connecting = connection is ConnectionState.Connecting
 
     val mood = when (connection) {
@@ -107,10 +118,13 @@ fun ConnectScreen(
         ) {
             Spacer(Modifier.height(40.dp))
             ClayDot(palette, Modifier.size(220.dp), mood = mood, accessory = appearance.accessory, species = appearance.species)
-            Text("Hermes", style = MaterialTheme.typography.displaySmall, color = Ink.Primary)
+            Text(
+                if (adding) stringResource(R.string.agents_add_title) else appearance.displayName,
+                style = MaterialTheme.typography.displaySmall, color = Ink.Primary, textAlign = TextAlign.Center,
+            )
             Spacer(Modifier.height(6.dp))
             Text(
-                stringResource(R.string.connect_tagline),
+                stringResource(if (adding) R.string.agents_add_tagline else R.string.connect_tagline),
                 style = MaterialTheme.typography.bodyLarge,
                 color = Ink.Secondary,
                 textAlign = TextAlign.Center,
@@ -158,19 +172,39 @@ fun ConnectScreen(
                 enabled = !connecting && url.isNotBlank() && token.isNotBlank(),
                 height = 54.dp,
             )
-            Text(
-                stringResource(R.string.connect_demo),
-                style = MaterialTheme.typography.labelLarge,
-                color = palette.deep,
-                modifier = Modifier
-                    .padding(top = 6.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = !connecting) { onConnect(GatewayConfig.DEMO_URL, "") }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+            when {
+                adding -> TextLink(stringResource(R.string.agents_add_cancel), enabled = true, onClick = onCancelAdd)
+                // La démo, pour découvrir l'app avant d'avoir un agent ; plus proposée ensuite.
+                otherAgents.isEmpty() -> TextLink(stringResource(R.string.connect_demo), enabled = !connecting) { onConnect(GatewayConfig.DEMO_URL, "") }
+            }
+            if (!adding && otherAgents.isNotEmpty()) {
+                // L'agent affiché ne répond pas : les autres restent joignables.
+                Text(
+                    stringResource(R.string.agents_switch_to),
+                    style = MaterialTheme.typography.bodySmall, color = Ink.Secondary,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+                otherAgents.forEach { agent ->
+                    TextLink(agent.appearance.displayName, enabled = true) { onSelectAgent(agent.id) }
+                }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+@Composable
+private fun TextLink(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = LocalDotPalette.current.deep,
+        modifier = Modifier
+            .padding(top = 6.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    )
 }
 
 @Composable

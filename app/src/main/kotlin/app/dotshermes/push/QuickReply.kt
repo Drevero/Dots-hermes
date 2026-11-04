@@ -14,22 +14,25 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Actions lancées depuis une notification (réponse, feu vert). Si l'app tourne et est connectée,
- * elles passent par sa socket ; sinon, connexion éclair avec l'appairage mémorisé.
+ * Actions lancées depuis une notification (réponse, feu vert), toujours vers l'agent [agent] qui a
+ * écrit. Si l'app tourne et que cet agent est connecté, elles passent par sa socket ; sinon,
+ * connexion éclair avec l'appairage mémorisé de cet agent. Agent inconnu (retiré entre-temps) : rien ne part.
  */
 object QuickReply {
     private val client by lazy { OkHttpClient() }
 
-    suspend fun send(text: String, chat: String = MAIN_CHAT): Boolean {
-        if (AppContainer.gateway.sendIfConnected(text, chat)) return true
+    suspend fun send(agent: String, text: String, chat: String = MAIN_CHAT): Boolean {
+        if (AppContainer.agents.store.get(agent) == null) return false
+        if (AppContainer.agents.repo(agent).sendIfConnected(text, chat)) return true
         val clientId = UUID.randomUUID().toString()
-        return oneShot(GatewayProtocol.message(clientId, text, chat)) { it.optString("type") == "ack" && it.optString("client_id") == clientId }
+        return oneShot(agent, GatewayProtocol.message(clientId, text, chat)) { it.optString("type") == "ack" && it.optString("client_id") == clientId }
     }
 
     /** Approuver / refuser une commande : terminé quand le gateway confirme la résolution. */
-    suspend fun answerApproval(approvalId: String, approved: Boolean): Boolean {
-        if (AppContainer.gateway.answerApprovalIfConnected(approvalId, approved)) return true
-        return oneShot(GatewayProtocol.approval(approvalId, approved)) {
+    suspend fun answerApproval(agent: String, approvalId: String, approved: Boolean): Boolean {
+        if (AppContainer.agents.store.get(agent) == null) return false
+        if (AppContainer.agents.repo(agent).answerApprovalIfConnected(approvalId, approved)) return true
+        return oneShot(agent, GatewayProtocol.approval(approvalId, approved)) {
             it.optString("type") == "approval_resolved" && it.optString("approval_id") == approvalId
         }
     }
@@ -38,8 +41,8 @@ object QuickReply {
      * Connexion éclair : `hello` sans rattrapage (last_seq immense, rien à rejouer), une trame,
      * puis attente de la trame de confirmation [done] avant de fermer.
      */
-    private suspend fun oneShot(frame: String, done: (JSONObject) -> Boolean): Boolean {
-        val config = AppContainer.gatewayConfig.load() ?: return false
+    private suspend fun oneShot(agent: String, frame: String, done: (JSONObject) -> Boolean): Boolean {
+        val config = AppContainer.agents.store.get(agent)?.config ?: return false
         val confirmed = CompletableDeferred<Boolean>()
         val request = Request.Builder().url(config.url).header("Authorization", "Bearer ${config.token}").build()
         val socket = client.newWebSocket(request, object : WebSocketListener() {

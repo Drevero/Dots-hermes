@@ -25,7 +25,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openChatFrom(intent: Intent?) {
-        intent?.getStringExtra(Notifications.EXTRA_CHAT)?.let { AppContainer.chatRepository.selectChat(it) }
+        // L'agent d'abord (sa conversation est choisie sur sa propre connexion, pas sur celle affichée).
+        val agent = intent?.getStringExtra(Notifications.EXTRA_AGENT)
+        val chat = intent?.getStringExtra(Notifications.EXTRA_CHAT)
+        if (agent != null && AppContainer.agents.store.get(agent) != null) {
+            AppContainer.agents.select(agent)
+            chat?.let { AppContainer.agents.repo(agent).selectChat(it) }
+        } else {
+            chat?.let { AppContainer.chatRepository.selectChat(it) }
+        }
         // Notification « mise à jour disponible » : l'interface ouvre le dialogue.
         if (intent?.getBooleanExtra(UpdateNotifications.EXTRA_OPEN_UPDATE, false) == true) AppContainer.updater.requestPrompt()
     }

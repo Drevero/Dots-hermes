@@ -8,13 +8,17 @@
 Chat with your self-hosted agent the way you chat with a friend: voice notes, files, live tool activity,
 approvals straight from a notification, a live view of its browser, and clay mascots you can make your own.
 
-The project has two parts that work together:
+**New: Hermes in your browser at [dots-hermes.vercel.app](https://dots-hermes.vercel.app).** Open it
+on your computer and scan its QR code from the app: your agents and sub-dots show up with the same
+mascots and colours, and the browser talks to your gateway directly. See [Web app](#optional-web-app).
+
+The project has three parts that work together:
 
 | Part | What it is | Where |
 |---|---|---|
 | **Android app** | Kotlin + Jetpack Compose client | [`app/`](app) |
 | **Gateway plugin** | A Hermes platform plugin (`dots-platform`) that exposes one authenticated WebSocket | [`server/hermes-plugin-dots/`](server/hermes-plugin-dots) |
-| **Web app** *(experimental)* | A static Preact site, paired with the phone by QR code, that talks to your gateways directly | [`web/`](web) |
+| **Web app** *(experimental)* | A static Preact site, paired with the phone by QR code, that talks to your gateways directly. Live at [dots-hermes.vercel.app](https://dots-hermes.vercel.app) | [`web/`](web) |
 
 The app speaks **English** and **French** and follows your phone's language: see [Languages](#languages).
 
@@ -150,6 +154,7 @@ These work, but rely on Hermes internals or are recent. Expect rough edges.
 | **Take over the browser** | When a page needs a human (login, 2FA, captcha), the agent hands you its browser; you tap, scroll and type on its page from your phone, then hand it back. Input is validated on Chromium; the agent must call the `browser_request_takeover` tool, which is not guaranteed. What you type goes to the page only, never to the chat or the model. |
 | **Sub-dots** | Extra agents next to your main one, each with its own conversation and Hermes session: **temporary** ones for a single mission, **permanent** ones with their own name, specialty, mascot and colour. Swipe the mascot to switch. |
 | **Group room** | From the *+* menu, invite sub-dots into the current conversation: they debate each of your messages for two rounds, each with its mascot above its bubbles, then the conversation's own dot concludes. Each guest speaks in a separate Hermes session, so its private conversation stays untouched. *Stop* ends the whole debate. |
+| **Web app** | Chat from a computer at [dots-hermes.vercel.app](https://dots-hermes.vercel.app). Pair it by scanning its rotating QR code from the app (agent settings → *Web app* → *Connect a browser*): each browser gets its own token, revocable from the phone, and your `DOTS_TOKEN` never leaves the phone. Covers the main conversation and sub-dots; voice notes and files can be played or downloaded but not sent yet. See [Web app](#optional-web-app). |
 | **Several devices at once** | The gateway accepts several connected apps and broadcasts the conversation to all of them. |
 | **Several independent agents** | Pair the app with several Hermes profiles (one gateway each) and switch between them by tapping the agent name at the top of the conversation. Each agent keeps its own conversations, sub-dots, notifications and approvals; isolation is enforced by Hermes, since every agent is a separate profile reached with its own token. See [Several agents](#several-agents). |
 
@@ -176,6 +181,8 @@ Checked items are done; the rest is not built yet.
 - [ ] More languages for the app interface (English and French are done, see [Languages](#languages))
 - [x] Prebuilt, signed APK attached to GitHub releases, with [in-app updates](#app-updates-from-github-releases)
 - [x] One-command server install script ([`server/install.sh`](server/install.sh))
+- [x] Web app paired by QR code, at [dots-hermes.vercel.app](https://dots-hermes.vercel.app)
+- [ ] Web app: send voice notes and files, Activity view, live browser screen
 - [ ] Push notifications for everyone using the prebuilt APK, without sharing a Firebase server key:
   [UnifiedPush](https://unifiedpush.org) (ntfy) first, then possibly an optional hosted FCM relay that
   only sends content-free wake-ups (the app fetches the message from its own gateway)

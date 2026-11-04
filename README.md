@@ -22,6 +22,7 @@ The app speaks **English** and **French** and follows your phone's language: see
 ## Table of contents
 
 - [Video](#video)
+- [Takeover demo](#takeover-demo)
 - [Screenshots](#screenshots)
 - [Features](#features)
   - [Stable](#stable)
@@ -55,6 +56,21 @@ Click the image to play it (with sound).
 <p align="center">
   <a href="assets/demo.mp4">
     <img src="assets/demo-poster.jpg" alt="Video: a 27-second tour of the app" width="100%">
+  </a>
+</p>
+
+---
+
+## Takeover demo
+
+A 20-second look at the [live browser screen and takeover](#experimental): your agent books a table,
+hits a sign-in page and asks for help; you take over its browser from your phone, sign in, and hand it
+back so it can finish the booking. What you type goes to its page only, never to the chat or the model.
+Click the image to play it (with sound).
+
+<p align="center">
+  <a href="assets/takeover.mp4">
+    <img src="assets/takeover-poster.jpg" alt="Video: taking over the agent's browser from the phone" width="100%">
   </a>
 </p>
 
@@ -134,12 +150,14 @@ These work, but rely on Hermes internals or are recent. Expect rough edges.
 
 ### Roadmap
 
-Not built yet:
+Checked items are done; the rest is not built yet.
 
 - [ ] More languages for the app interface (English and French are done, see [Languages](#languages))
-- [ ] Prebuilt, signed APK attached to GitHub releases
-- [ ] One-command server install script
-- [ ] Push notifications without Firebase (ntfy / UnifiedPush), so a prebuilt APK can work for everyone
+- [x] Prebuilt, signed APK attached to GitHub releases, with [in-app updates](#app-updates-from-github-releases)
+- [x] One-command server install script ([`server/install.sh`](server/install.sh))
+- [ ] Push notifications for everyone using the prebuilt APK, without sharing a Firebase server key:
+  [UnifiedPush](https://unifiedpush.org) (ntfy) first, then possibly an optional hosted FCM relay that
+  only sends content-free wake-ups (the app fetches the message from its own gateway)
 - [ ] Protection against token brute force on the gateway
 - [ ] Spoken replies, then hands-free voice calls with the agent
 - [ ] Local message cache with full-text search

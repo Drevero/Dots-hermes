@@ -143,7 +143,7 @@ BACKUPS="$HERMES_HOME/backups"
 
 step "Installation du plugin"
 DEST="$HERMES_HOME/plugins/dots"
-plugin_version() { sed -n 's/^version: *//p' "$1/plugin.yaml" 2>/dev/null | head -1; }
+plugin_version() { sed -n 's/^version: *//p' "$1/plugin.yaml" 2>/dev/null | head -1 || true; }
 NEW_VERSION="$(plugin_version "$PLUGIN_SRC")"
 OLD_VERSION="$(plugin_version "$DEST")"
 if [ -d "$DEST" ]; then

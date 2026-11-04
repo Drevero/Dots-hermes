@@ -22,11 +22,7 @@ export function palette(id: string | undefined): DotPalette {
   return PALETTES[(id as PaletteId) ?? "tangerine"] ?? PALETTES.tangerine;
 }
 
-/**
- * Variables CSS d'une palette, à poser en `style` sur un conteneur. En sombre, comme Theme.kt,
- * le pastel devient une teinte profonde de la couleur et l'accent s'éclaircit : c'est fait en CSS
- * avec color-mix (voir .dot-scope dans theme.css).
- */
+/** Variables CSS d'une palette, à poser en `style` sur un conteneur (le web n'a que le thème clair). */
 export function paletteStyle(id: string | undefined): Record<string, string> {
   const p = palette(id);
   return { "--dot-base": p.base, "--dot-deep": p.deep, "--dot-light": p.light, "--dot-on-base": p.onBase };

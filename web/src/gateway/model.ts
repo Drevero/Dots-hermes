@@ -1,3 +1,5 @@
+import type { AccessoryId, PaletteId, SpeciesId } from "../types";
+
 /**
  * Modèle du fil tel que le chat l'affiche, construit à partir des trames du gateway
  * (docs/protocole-gateway.md). Tout est immuable : chaque changement produit un nouvel objet, ce
@@ -8,8 +10,23 @@ export type Activity = "idle" | "thinking" | "typing";
 export type ConnectionStatus = "connecting" | "online" | "offline";
 export type Delivery = "sending" | "sent" | "read";
 
-/** Le dot principal ; les sous-dots (`dot-<id>`) sont hors du périmètre de cette version. */
+/** Le dot principal ; chaque sous-dot a sa propre conversation, `dot-<id>`. */
 export const MAIN_CHAT = "owner";
+
+/**
+ * Un sous-dot, tel que le gateway le garde dans `dots.json` (trames `welcome.dots` et `dots`).
+ * L'apparence est déjà traduite vers les ids du web : le gateway écrit `Galet`, `WingedCap`…
+ */
+export interface SubDot {
+  id: string;
+  name: string;
+  kind: "temporary" | "permanent";
+  mission: string;
+  species: SpeciesId;
+  palette: PaletteId;
+  accessory: AccessoryId;
+  lastTs: number;
+}
 
 export interface Approval {
   title: string;
@@ -72,10 +89,8 @@ export interface ToolCall {
   durationMs: number | null;
 }
 
-export interface GatewaySnapshot {
-  status: ConnectionStatus;
-  /** Nom du profil annoncé par `welcome` (le nom choisi dans l'app reste prioritaire à l'affichage). */
-  serverName: string | null;
+/** État d'une conversation (le dot principal ou un sous-dot). */
+export interface ChatState {
   messages: ChatMessage[];
   tools: ToolCall[];
   activity: Activity;
@@ -83,13 +98,11 @@ export interface GatewaySnapshot {
   loaded: boolean;
   hasMore: boolean;
   loadingOlder: boolean;
-  /** Messages de l'agent arrivés pendant que cet agent n'était pas à l'écran. */
+  /** Messages des dots arrivés pendant que cette conversation n'était pas à l'écran. */
   unread: number;
 }
 
-export const EMPTY_SNAPSHOT: GatewaySnapshot = {
-  status: "connecting",
-  serverName: null,
+export const EMPTY_CHAT: ChatState = {
   messages: [],
   tools: [],
   activity: "idle",
@@ -98,6 +111,53 @@ export const EMPTY_SNAPSHOT: GatewaySnapshot = {
   loadingOlder: false,
   unread: 0,
 };
+
+/**
+ * Ce que le chat affiche d'un agent : la conversation ouverte ([activeChat]) à plat, comme avant
+ * les sous-dots, plus de quoi dessiner le sélecteur de dots.
+ */
+export interface GatewaySnapshot extends Omit<ChatState, "unread"> {
+  status: ConnectionStatus;
+  /** Nom du profil annoncé par `welcome` (le nom choisi dans l'app reste prioritaire à l'affichage). */
+  serverName: string | null;
+  /** Conversation ouverte : MAIN_CHAT ou l'id d'un sous-dot. */
+  activeChat: string;
+  dots: SubDot[];
+  /** Par conversation : non lus et activité, pour les pastilles du sélecteur. */
+  chats: Record<string, { unread: number; activity: Activity }>;
+  /** Total des non lus de l'agent, toutes conversations confondues (liste des agents, titre). */
+  unread: number;
+}
+
+export const EMPTY_SNAPSHOT: GatewaySnapshot = {
+  ...EMPTY_CHAT,
+  status: "connecting",
+  serverName: null,
+  activeChat: MAIN_CHAT,
+  dots: [],
+  chats: {},
+  unread: 0,
+};
+
+const SPECIES: Record<string, SpeciesId> = { galet: "galet", nuage: "nuage", pave: "pave" };
+const PALETTES: PaletteId[] = ["tangerine", "bubblegum", "sky", "lime", "sun", "grape"];
+
+/** `dots` du gateway → sous-dots ; défauts de l'app (SubDots.kt) : Nuage, Sky, pétase. */
+export function toDots(value: unknown): SubDot[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((d): d is Json => !!d && typeof d === "object" && typeof d.id === "string" && d.id !== "")
+    .map((d) => ({
+      id: d.id,
+      name: str(d.name).trim() || "Dot",
+      kind: d.kind === "permanent" ? "permanent" : "temporary",
+      mission: str(d.mission),
+      species: SPECIES[str(d.species).toLowerCase()] ?? "nuage",
+      palette: (PALETTES as string[]).includes(str(d.palette)) ? (d.palette as PaletteId) : "sky",
+      accessory: str(d.accessory) === "None" ? "none" : "winged_cap",
+      lastTs: num(d.last_ts),
+    }));
+}
 
 /* -- Conversion des événements du gateway ------------------------------------------------------- */
 

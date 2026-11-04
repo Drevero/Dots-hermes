@@ -3,7 +3,6 @@
 .pair {
   --pair-bg: linear-gradient(165deg, #e4eeff 0%, #edf0fb 45%, #f5effd 100%);
   --pair-card-shadow: 0 1px 2px rgba(17, 17, 20, 0.04), 0 18px 48px -12px rgba(47, 80, 160, 0.18);
-  /* Le QR reste sombre sur blanc, même en thème sombre : tous les lecteurs ne lisent pas l'inverse. */
   --pair-qr-ink: #111114;
   position: relative;
   min-height: 100%;
@@ -16,22 +15,6 @@
   overflow-x: hidden;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .pair {
-    --pair-bg:
-      radial-gradient(120% 70% at 10% 0%, rgba(47, 140, 255, 0.2), transparent 60%),
-      radial-gradient(100% 70% at 100% 100%, rgba(142, 107, 255, 0.18), transparent 60%),
-      var(--ink-surface);
-    --pair-card-shadow: 0 0 0 1px var(--ink-separator), 0 18px 48px -12px rgba(0, 0, 0, 0.6);
-  }
-}
-:root[data-theme="dark"] .pair {
-  --pair-bg:
-    radial-gradient(120% 70% at 10% 0%, rgba(47, 140, 255, 0.2), transparent 60%),
-    radial-gradient(100% 70% at 100% 100%, rgba(142, 107, 255, 0.18), transparent 60%),
-    var(--ink-surface);
-  --pair-card-shadow: 0 0 0 1px var(--ink-separator), 0 18px 48px -12px rgba(0, 0, 0, 0.6);
-}
 
 .pair-close {
   position: absolute;

@@ -85,6 +85,8 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           DEFAULT_GATEWAY_URL: ${{ vars.DEFAULT_GATEWAY_URL }}
+          # La mise à jour intégrée suit les releases de ce dépôt (celui d'un fork, pour un fork).
+          UPDATE_REPO: ${{ github.repository }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest assembleRelease

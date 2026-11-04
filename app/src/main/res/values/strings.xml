@@ -294,6 +294,38 @@
     <string name="notif_approval_not_sent">Decision not sent</string>
     <string name="notif_approval_not_sent_text">Gateway unreachable: open the app to reply.</string>
 
+    <!-- Mises à jour de l'app (releases GitHub) -->
+    <string name="settings_app">App</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="update_channel_name">App updates</string>
+    <string name="update_channel_description">When a new version of Hermes is available</string>
+    <string name="update_notif_available_title">Hermes %1$s is available</string>
+    <string name="update_notif_available_text">Tap to install the update.</string>
+    <string name="update_notif_updated_title">Hermes updated to %1$s</string>
+    <string name="update_notif_updated_text">Tap to open the app.</string>
+    <string name="update_title">Update available</string>
+    <string name="update_available_text">Version %1$s is ready (you have %2$s). It installs over this one: your conversations and settings stay.</string>
+    <string name="update_permission_title">One more step</string>
+    <string name="update_permission_text">Android needs your OK once: allow Hermes to install apps, then come back here. The update will continue on its own.</string>
+    <string name="update_downloading">Downloading… %1$d %%</string>
+    <string name="update_installing">Installing… Android may ask you to confirm.</string>
+    <string name="update_failed_title">Update failed</string>
+    <string name="update_action_install">Update</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_action_open_settings">Open settings</string>
+    <string name="update_action_hide">Hide</string>
+    <string name="update_action_retry">Retry</string>
+    <string name="update_status_check">Check for updates</string>
+    <string name="update_status_checking">Checking…</string>
+    <string name="update_status_up_to_date">Up to date</string>
+    <string name="update_status_available">%1$s available</string>
+    <string name="update_status_installing">Installing…</string>
+    <string name="update_status_disabled">Updates off in this build</string>
+    <string name="update_error_check">Couldn\'t reach GitHub. Check your connection.</string>
+    <string name="update_error_download">The download failed. Try again.</string>
+    <string name="update_error_checksum">The downloaded file is damaged (checksum mismatch). Try again.</string>
+    <string name="update_error_install">Android refused the update.</string>
+
     <!-- Quantités variables -->
     <plurals name="tool_actions">
         <item quantity="one">%d action</item>

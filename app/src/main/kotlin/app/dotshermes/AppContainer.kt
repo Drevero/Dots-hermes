@@ -10,6 +10,7 @@ import app.dotshermes.data.mock.MockChatRepository
 import app.dotshermes.attach.Attachments
 import app.dotshermes.push.Notifications
 import app.dotshermes.ui.AppearanceStore
+import app.dotshermes.update.AppUpdater
 import app.dotshermes.voice.VoicePlayer
 import app.dotshermes.voice.VoiceRecorder
 import kotlinx.coroutines.CoroutineScope
@@ -41,4 +42,5 @@ object AppContainer {
     val voiceRecorder: VoiceRecorder by lazy { VoiceRecorder(appContext, appScope) }
     val voicePlayer: VoicePlayer by lazy { VoicePlayer(appScope) }
     val attachments: Attachments by lazy { Attachments(appContext) }
+    val updater: AppUpdater by lazy { AppUpdater(appContext) }
 }

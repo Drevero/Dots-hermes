@@ -70,6 +70,10 @@ fun AgentSettings(
     onTheme: (ThemeMode) -> Unit,
     onPalette: (DotPalette) -> Unit,
     onAccessory: (DotAccessory) -> Unit,
+    /** Version installée et état de la mise à jour, pour la ligne « Version » ; un appui vérifie ou ouvre le dialogue. */
+    appVersion: String,
+    updateStatus: String,
+    onUpdateRow: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     val palette = LocalDotPalette.current
@@ -133,6 +137,13 @@ fun AgentSettings(
                     DotAccessory.entries.forEach { accessory ->
                         AccessoryOption(accessory, appearance.species, selected = accessory == appearance.accessory) { onAccessory(accessory) }
                     }
+                }
+            }
+
+            SectionLabel(stringResource(R.string.settings_app))
+            GroupedCard {
+                Box(Modifier.fillMaxWidth().clickable(onClick = onUpdateRow)) {
+                    InfoRow(stringResource(R.string.settings_version, appVersion), updateStatus)
                 }
             }
 

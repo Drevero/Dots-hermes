@@ -40,6 +40,13 @@ import app.dotshermes.ui.connect.ConnectScreen
 import app.dotshermes.ui.theme.DotsTheme
 import androidx.compose.ui.res.stringResource
 import app.dotshermes.R
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import app.dotshermes.update.Release
+import app.dotshermes.update.UpdateState
+import app.dotshermes.ui.update.UpdateDialog
+import app.dotshermes.ui.update.updateStatusText
+import kotlinx.coroutines.launch
 
 /** Racine : écran d'appairage tant que le gateway n'est pas connecté, puis la conversation unique. */
 @Composable
@@ -71,6 +78,29 @@ fun HermesApp(
     var creatingDot by rememberSaveable { mutableStateOf(false) }
     // Apparence saisie dans l'éditeur d'un sous-dot (ou du nouveau) : le carrousel l'affiche en direct.
     var editPreview by remember { mutableStateOf<DotAppearance?>(null) }
+
+    // Mise à jour : vérifiée à l'ouverture ; le dialogue s'ouvre pour une nouvelle version (une fois
+    // par version, sauf si l'on touche la notification ou la ligne « Version » des réglages).
+    val updater = AppContainer.updater
+    val updateState by updater.state.collectAsStateWithLifecycle()
+    val updatePrompt by updater.promptRequested.collectAsStateWithLifecycle()
+    var updateDialog by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        updater.check()?.let { if (updater.shouldPrompt(it)) updateDialog = true }
+    }
+    LaunchedEffect(updatePrompt) {
+        if (!updatePrompt) return@LaunchedEffect
+        updater.clearPrompt()
+        if (updateState is UpdateState.Available || updater.check(force = true) != null) updateDialog = true
+    }
+    // Retour des réglages « sources inconnues » : si l'accord est donné, l'installation reprend seule.
+    LifecycleResumeEffect(updateState) {
+        val waiting = updateState as? UpdateState.NeedsPermission
+        if (waiting != null && updater.canInstall()) scope.launch { updater.install(waiting.release) }
+        onPauseOrDispose { }
+    }
 
     val dark = when (appearance.theme) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -213,6 +243,12 @@ fun HermesApp(
                         onTheme = viewModel::setTheme,
                         onPalette = viewModel::setPalette,
                         onAccessory = viewModel::setAccessory,
+                        appVersion = updater.currentVersion,
+                        updateStatus = updateStatusText(updateState, updater.enabled),
+                        onUpdateRow = {
+                            if (updateState is UpdateState.Available || updateState is UpdateState.Failed) updateDialog = true
+                            else scope.launch { if (updater.check(force = true) != null) updateDialog = true }
+                        },
                         onDisconnect = {
                             agentSheetOpen = false
                             viewModel.disconnect()
@@ -220,6 +256,19 @@ fun HermesApp(
                     )
                 }
             }
+        }
+        if (updateDialog) {
+            UpdateDialog(
+                state = updateState,
+                currentVersion = updater.currentVersion,
+                onUpdate = { scope.launch { updater.install(updateRelease(updateState) ?: return@launch) } },
+                onLater = {
+                    updateRelease(updateState)?.let(updater::dismiss)
+                    updateDialog = false
+                },
+                onOpenSettings = { context.startActivity(updater.permissionSettingsIntent()) },
+                onClose = { updateDialog = false },
+            )
         }
     }
 }
@@ -233,4 +282,11 @@ private fun SystemBarsFor(dark: Boolean) {
         else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
         activity.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
+}
+
+private fun updateRelease(state: UpdateState): Release? = when (state) {
+    is UpdateState.Available -> state.release
+    is UpdateState.NeedsPermission -> state.release
+    is UpdateState.Failed -> state.release
+    else -> null
 }

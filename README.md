@@ -426,11 +426,30 @@ On a tight server, use `base`, or add some swap.
 # Gateway plugin: keeps your token and settings, backs up the previous version
 git pull && bash server/install.sh
 
-# App: install the latest APK from Releases, or rebuild
+# App (built from source): rebuild and reinstall
 ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The plugin migrates its own data (history and sub-dots live in `~/.hermes/platforms/dots/`).
+
+### App updates from GitHub releases
+
+An APK installed from [Releases](https://github.com/Drevero/Dots-hermes/releases) **updates itself**, no store needed:
+
+- It checks the repository's latest release when it opens and twice a day in the background, and
+  sends a notification when a new version is out.
+- One tap downloads the APK, checks it against the SHA-256 published with the release, and hands it to
+  Android. The first time, Android asks you to allow Hermes to install apps; after that, each update
+  is a single confirmation. On Android 12+, once Hermes has updated itself once, later updates may
+  install without any prompt.
+- Your conversations and settings stay: it installs over the current version.
+- *Settings › App › Version* shows the installed version and checks on demand.
+
+Prefer fully automatic updates? [Obtainium](https://github.com/ImranR98/Obtainium) can track this
+repository's releases (APK filter: `\.apk$`) and install them in the background.
+
+Builds made from source (debug builds, or release builds without `UPDATE_REPO`) never update
+themselves: their signing key differs from the releases'.
 
 > [!WARNING]
 > Android only installs an update signed with the same key as the installed app. Moving between a
@@ -458,9 +477,12 @@ Everything below is optional: without it, the workflow still publishes a working
 | `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD` | Its passwords and key alias |
 | `DEFAULT_GATEWAY_URL` (variable) | Gateway address pre-filled on the pairing screen |
 
+The workflow also sets `UPDATE_REPO` to the repository it runs in, so the in-app updater of a fork
+follows that fork's releases.
+
 Without the signing secrets, the APK is signed with a throwaway debug key generated on the build
-machine. It installs fine, but each release may be signed differently, so an update can require
-uninstalling first. For stable updates, create a key once and add it as secrets:
+machine. It installs fine, but each release may be signed differently, so **updates (in-app or
+Obtainium) fail** until you set a stable key. Create a key once and add it as secrets:
 
 ```bash
 keytool -genkeypair -v -keystore release.jks -alias hermes -keyalg RSA -keysize 4096 -validity 10000

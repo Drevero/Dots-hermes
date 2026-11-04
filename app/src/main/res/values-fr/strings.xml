@@ -291,6 +291,38 @@
     <string name="notif_approval_not_sent">Décision non envoyée</string>
     <string name="notif_approval_not_sent_text">Gateway injoignable : ouvre l\'app pour répondre.</string>
 
+    <!-- Mises à jour de l'app (releases GitHub) -->
+    <string name="settings_app">Application</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="update_channel_name">Mises à jour de l\'app</string>
+    <string name="update_channel_description">Quand une nouvelle version de Hermes est disponible</string>
+    <string name="update_notif_available_title">Hermes %1$s est disponible</string>
+    <string name="update_notif_available_text">Touche pour installer la mise à jour.</string>
+    <string name="update_notif_updated_title">Hermes mis à jour en %1$s</string>
+    <string name="update_notif_updated_text">Touche pour ouvrir l\'app.</string>
+    <string name="update_title">Mise à jour disponible</string>
+    <string name="update_available_text">La version %1$s est prête (tu as la %2$s). Elle s\'installe par-dessus celle-ci : tes conversations et tes réglages sont conservés.</string>
+    <string name="update_permission_title">Encore une étape</string>
+    <string name="update_permission_text">Android a besoin de ton accord une seule fois : autorise Hermes à installer des applis, puis reviens ici. La mise à jour reprendra toute seule.</string>
+    <string name="update_downloading">Téléchargement… %1$d %%</string>
+    <string name="update_installing">Installation… Android peut te demander de confirmer.</string>
+    <string name="update_failed_title">La mise à jour a échoué</string>
+    <string name="update_action_install">Mettre à jour</string>
+    <string name="update_action_later">Plus tard</string>
+    <string name="update_action_open_settings">Ouvrir les réglages</string>
+    <string name="update_action_hide">Masquer</string>
+    <string name="update_action_retry">Réessayer</string>
+    <string name="update_status_check">Rechercher une mise à jour</string>
+    <string name="update_status_checking">Vérification…</string>
+    <string name="update_status_up_to_date">À jour</string>
+    <string name="update_status_available">%1$s disponible</string>
+    <string name="update_status_installing">Installation…</string>
+    <string name="update_status_disabled">Mises à jour désactivées dans ce build</string>
+    <string name="update_error_check">Impossible de joindre GitHub. Vérifie ta connexion.</string>
+    <string name="update_error_download">Le téléchargement a échoué. Réessaie.</string>
+    <string name="update_error_checksum">Le fichier téléchargé est abîmé (empreinte différente). Réessaie.</string>
+    <string name="update_error_install">Android a refusé la mise à jour.</string>
+
     <!-- Quantités variables -->
     <plurals name="tool_actions">
         <item quantity="one">%d action</item>

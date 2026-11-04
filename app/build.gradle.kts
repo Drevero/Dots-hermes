@@ -29,6 +29,9 @@ android {
         versionName = setting("VERSION_NAME", "appVersionName", "0.2.0")
         // Adresse proposée sur l'écran d'appairage ; vide par défaut (chacun saisit la sienne).
         buildConfigField("String", "DEFAULT_GATEWAY_URL", "\"${setting("DEFAULT_GATEWAY_URL", "defaultGatewayUrl", "")}\"")
+        // Dépôt GitHub dont les releases mettent l'app à jour (« owner/repo ») ; vide = pas de mise à jour
+        // intégrée. La CI y met le dépôt qui publie : un fork ne propose donc que ses propres releases.
+        buildConfigField("String", "UPDATE_REPO", "\"${setting("UPDATE_REPO", "updateRepo", "")}\"")
     }
 
     signingConfigs {
@@ -82,6 +85,7 @@ dependencies {
     // Firebase tire une vieille version de fragment (< 1.3) ; celle-ci gère correctement les demandes de permission.
     implementation(libs.androidx.fragment)
     implementation(libs.okhttp)
+    implementation(libs.androidx.work.runtime)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     debugImplementation(libs.compose.ui.tooling)

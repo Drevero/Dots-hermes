@@ -7,6 +7,7 @@ import android.os.Build
 import android.content.Intent
 import android.os.Bundle
 import app.dotshermes.push.Notifications
+import app.dotshermes.update.UpdateNotifications
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -25,6 +26,8 @@ class MainActivity : ComponentActivity() {
 
     private fun openChatFrom(intent: Intent?) {
         intent?.getStringExtra(Notifications.EXTRA_CHAT)?.let { AppContainer.chatRepository.selectChat(it) }
+        // Notification « mise à jour disponible » : l'interface ouvre le dialogue.
+        if (intent?.getBooleanExtra(UpdateNotifications.EXTRA_OPEN_UPDATE, false) == true) AppContainer.updater.requestPrompt()
     }
 
     // Refus sans conséquence : l'app marche, on ne reçoit simplement pas de push.

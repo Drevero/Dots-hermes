@@ -5,6 +5,8 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.dotshermes.push.Notifications
+import app.dotshermes.update.UpdateNotifications
+import app.dotshermes.update.UpdateWorker
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 
@@ -17,6 +19,8 @@ class HermesApplication : Application() {
         super.onCreate()
         AppContainer.init(this)
         Notifications.createChannel(this)
+        UpdateNotifications.createChannel(this)
+        UpdateWorker.schedule(this)
 
         // Premier plan = au moins une activité visible. Le gateway ne pousse que quand l'app est cachée.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {

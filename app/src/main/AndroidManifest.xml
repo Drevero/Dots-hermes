@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Messages vocaux : demandée au premier appui sur le micro. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Mises à jour depuis les releases GitHub : Android demande l'accord une fois (« sources inconnues »). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".HermesApplication"
@@ -44,6 +46,18 @@
         <receiver
             android:name=".push.ApprovalReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".update.InstallStatusReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".update.AppUpdatedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Ouverture des pièces jointes dans l'app adaptée, sans exposer le stockage privé. -->
         <provider

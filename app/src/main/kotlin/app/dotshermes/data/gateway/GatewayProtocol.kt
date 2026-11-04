@@ -18,6 +18,7 @@ import app.dotshermes.data.model.Sender
 import app.dotshermes.data.model.ToolCall
 import app.dotshermes.data.model.ToolKind
 import app.dotshermes.data.model.ToolState
+import app.dotshermes.data.webpair.WebSession
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -60,6 +61,31 @@ internal object GatewayProtocol {
     }.toString()
 
     fun activityGet(): String = JSONObject().put("type", "activity_get").toString()
+
+    // -- Sessions web (docs/appairage-web.md) -------------------------------------------------------
+
+    /** Demande un jeton web pour le navigateur d'[origin] ; la réponse `web_token` reprend [ref]. */
+    fun webTokenCreate(ref: String, origin: String, label: String): String =
+        JSONObject().put("type", "web_token_create").put("ref", ref).put("origin", origin).put("label", label).toString()
+
+    fun webSessionsGet(): String = JSONObject().put("type", "web_sessions_get").toString()
+
+    fun webRevoke(id: String): String = JSONObject().put("type", "web_revoke").put("id", id).toString()
+
+    /** Trame `web_sessions` : `sessions[]` = `{id, label, origin, created_at, last_seen}` (millisecondes). */
+    fun toWebSessions(frame: JSONObject): List<WebSession> {
+        val array = frame.optJSONArray("sessions") ?: return emptyList()
+        return List(array.length()) { array.optJSONObject(it) }.mapNotNull { s ->
+            val id = s?.optString("id")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            WebSession(
+                id = id,
+                label = s.optString("label"),
+                origin = s.optString("origin"),
+                createdAt = s.optLong("created_at").takeIf { it > 0 }?.let(Instant::ofEpochMilli),
+                lastSeen = s.optLong("last_seen").takeIf { it > 0 }?.let(Instant::ofEpochMilli),
+            )
+        }.sortedByDescending { it.lastSeen ?: it.createdAt ?: Instant.EPOCH }
+    }
 
     fun usageGet(from: Instant, to: Instant): String =
         JSONObject().put("type", "usage_get").put("from", from.toEpochMilli()).put("to", to.toEpochMilli()).toString()

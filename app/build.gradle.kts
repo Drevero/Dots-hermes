@@ -88,6 +88,11 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // Appairage de l'app web : lecture du QR code du navigateur (modèle ML Kit embarqué, sans Play Services).
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.mlkit.barcode.scanning)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)

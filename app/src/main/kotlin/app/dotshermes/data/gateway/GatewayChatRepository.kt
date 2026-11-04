@@ -24,6 +24,8 @@ import app.dotshermes.data.model.Sender
 import app.dotshermes.data.model.SubDot
 import app.dotshermes.data.model.SubDotDraft
 import app.dotshermes.data.model.ToolCall
+import app.dotshermes.data.webpair.WebSession
+import app.dotshermes.data.webpair.WebTokenResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -161,6 +163,13 @@ class GatewayChatRepository(
 
     /** Téléchargements de vocaux et pièces jointes en cours, par identifiant distant. */
     private val audioRequests = ConcurrentHashMap<String, CompletableDeferred<ByteArray?>>()
+
+    /** Jetons web demandés (appairage d'un navigateur), par `ref` : la réponse `web_token` la reprend. */
+    private val webTokenRequests = ConcurrentHashMap<String, CompletableDeferred<WebTokenResult>>()
+
+    /** Navigateurs appairés avec cet agent ; null tant que la liste n'a pas été demandée ([requestWebSessions]). */
+    private val _webSessions = MutableStateFlow<List<WebSession>?>(null)
+    val webSessions: StateFlow<List<WebSession>?> = _webSessions.asStateFlow()
 
     @Volatile private var config: GatewayConfig? = null
     @Volatile private var socket: WebSocket? = null
@@ -421,6 +430,51 @@ class GatewayChatRepository(
         return true
     }
 
+    // -- Sessions web (docs/appairage-web.md) -------------------------------------------------------
+
+    /**
+     * Demande au gateway un jeton web pour le navigateur d'[origin] (appairage par QR code). Seule
+     * l'app, avec le jeton maître, peut en obtenir ; le `DOTS_TOKEN` ne quitte jamais le téléphone.
+     * [WebTokenResult.Unavailable] si l'agent n'est pas connecté ou ne répond pas en [timeoutMs].
+     */
+    suspend fun createWebToken(origin: String, label: String, timeoutMs: Long = 10_000): WebTokenResult {
+        val ws = socket ?: return WebTokenResult.Unavailable
+        if (_connection.value !is ConnectionState.Connected) return WebTokenResult.Unavailable
+        val ref = UUID.randomUUID().toString()
+        val reply = CompletableDeferred<WebTokenResult>()
+        webTokenRequests[ref] = reply
+        try {
+            if (!ws.send(GatewayProtocol.webTokenCreate(ref, origin, label))) return WebTokenResult.Unavailable
+            return withTimeoutOrNull(timeoutMs) { reply.await() } ?: WebTokenResult.Unavailable
+        } finally {
+            webTokenRequests.remove(ref)
+        }
+    }
+
+    /** Redemande la liste des navigateurs appairés ; elle arrive dans [webSessions]. */
+    fun requestWebSessions(): Boolean {
+        if (_connection.value !is ConnectionState.Connected) return false
+        return socket?.send(GatewayProtocol.webSessionsGet()) == true
+    }
+
+    /** Révoque un navigateur : le gateway ferme ses sockets et renvoie la liste à jour. */
+    fun revokeWebSession(id: String): Boolean {
+        if (_connection.value !is ConnectionState.Connected) return false
+        return socket?.send(GatewayProtocol.webRevoke(id)) == true
+    }
+
+    private fun onWebToken(frame: JSONObject) {
+        val reply = webTokenRequests[frame.optString("ref")] ?: return
+        val token = frame.optString("token")
+        reply.complete(
+            when {
+                frame.optString("error") == "origin_not_allowed" -> WebTokenResult.OriginNotAllowed(frame.optString("origin"))
+                token.isNotEmpty() -> WebTokenResult.Granted(token, frame.optString("id"))
+                else -> WebTokenResult.Unavailable
+            },
+        )
+    }
+
     // -- Transport ---------------------------------------------------------------------------------
 
     private fun open(config: GatewayConfig) {
@@ -603,7 +657,14 @@ class GatewayChatRepository(
                 val status = if (frame.optString("choice") == "deny") ApprovalStatus.Declined else ApprovalStatus.Approved
                 m.copy(content = approval.copy(status = status))
             }
-            "error" -> Log.w(TAG, "Erreur gateway : ${frame.optString("code")}")
+            "web_token" -> onWebToken(frame)
+            "web_sessions" -> _webSessions.value = GatewayProtocol.toWebSessions(frame)
+            "error" -> {
+                Log.w(TAG, "Erreur gateway : ${frame.optString("code")}")
+                // Plugin d'avant les sessions web : la trame est inconnue, l'erreur ne porte pas de `ref`.
+                // Seules nos demandes de jeton peuvent la provoquer ici : on les clôt sans attendre le délai.
+                if (frame.optString("code") == "unknown_type") webTokenRequests.values.forEach { it.complete(WebTokenResult.Unsupported) }
+            }
         }
     }
 

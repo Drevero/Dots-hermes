@@ -5,6 +5,7 @@ import app.dotshermes.data.AgentRegistry
 import app.dotshermes.data.AgentStore
 import app.dotshermes.data.RoutingChatRepository
 import app.dotshermes.data.mock.MockChatRepository
+import app.dotshermes.data.webpair.WebPairer
 import app.dotshermes.attach.Attachments
 import app.dotshermes.push.Notifications
 import app.dotshermes.update.AppUpdater
@@ -37,6 +38,8 @@ object AppContainer {
     val chatRepository: RoutingChatRepository by lazy {
         RoutingChatRepository(appScope, agents = agents, demo = MockChatRepository(appContext, appScope))
     }
+    /** Appairage de l'app web par QR code : jetons web des gateways, dépôt chiffré sur le relais. */
+    val webPairer: WebPairer by lazy { WebPairer(agents) }
     val voiceRecorder: VoiceRecorder by lazy { VoiceRecorder(appContext, appScope) }
     val voicePlayer: VoicePlayer by lazy { VoicePlayer(appScope) }
     val attachments: Attachments by lazy { Attachments(appContext) }

@@ -79,6 +79,9 @@ fun AgentSettings(
     onAddAgent: () -> Unit = {},
     /** Plusieurs agents : « Se déconnecter » devient « Retirer cet agent » (les autres restent). */
     multipleAgents: Boolean = false,
+    /** App web : scanner le QR code d'un navigateur, et la liste des navigateurs appairés (null : section masquée). */
+    onConnectBrowser: (() -> Unit)? = null,
+    onBrowserSessions: (() -> Unit)? = null,
 ) {
     val palette = LocalDotPalette.current
     val connected = connection as? ConnectionState.Connected
@@ -109,6 +112,16 @@ fun AgentSettings(
                         color = palette.deep,
                         modifier = Modifier.fillMaxWidth().clickable(onClick = onAddAgent).padding(horizontal = 16.dp, vertical = 13.dp),
                     )
+                }
+            }
+
+            if (connected?.demo == false && onConnectBrowser != null && onBrowserSessions != null) {
+                // Un navigateur reçoit tous les agents connectés, pas seulement celui-ci : section à part.
+                SectionLabel(stringResource(R.string.web_section))
+                GroupedCard {
+                    LinkRow(stringResource(R.string.web_connect_row), onConnectBrowser)
+                    Hairline()
+                    LinkRow(stringResource(R.string.web_sessions_row), onBrowserSessions)
                 }
             }
 
@@ -196,6 +209,16 @@ private fun NameField(name: String, onName: (String) -> Unit) {
             )
         }
     }
+}
+
+@Composable
+private fun LinkRow(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyLarge,
+        color = LocalDotPalette.current.deep,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp),
+    )
 }
 
 @Composable

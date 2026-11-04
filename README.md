@@ -487,9 +487,13 @@ On a tight server, use `base`, or add some swap.
 
 ## Optional: web app
 
-Chat with your agents from a computer, with the same mascots and colours. The web app is a static
-site (`web/`, ~60 KB gzipped) that you host yourself, for example on Vercel. It has **no backend of
-its own**: the browser opens a WebSocket straight to each of your gateways.
+Chat with your agents from a computer, with the same mascots and colours, at
+**[dots-hermes.vercel.app](https://dots-hermes.vercel.app)**. The web app is a static site (`web/`,
+~60 KB gzipped) with **no backend of its own**: the browser opens a WebSocket straight to each of
+your gateways.
+
+`install.sh` always allows `https://dots-hermes.vercel.app` on the gateway (`DOTS_WEB_ORIGINS`), so
+after installing or updating the plugin, open the site and scan its QR code from the phone app.
 
 **Pairing by QR code.** The page shows a QR code that rotates every 30 seconds. Scan it from the
 phone app: the phone asks each gateway for a token dedicated to this browser, encrypts the list of
@@ -498,20 +502,21 @@ Upstash Redis key, kept 120 s and erased when read). The relay only ever sees ci
 `DOTS_TOKEN` never leaves the phone. Every browser can be logged out from the phone. Details:
 [docs/appairage-web.md](docs/appairage-web.md).
 
-**Deploy on Vercel**
+**Host your own copy on Vercel** (optional)
 
 1. Import this repository in Vercel and set **Root Directory** to `web`. The Vite preset is detected;
    `web/vercel.json` adds the SPA rewrite and a strict Content-Security-Policy.
 2. In *Storage* → *Marketplace*, add **Upstash Redis** (free tier) to the project: it injects
    `KV_REST_API_URL` and `KV_REST_API_TOKEN`, which the relay (`web/api/pair.ts`) reads.
-3. On each gateway, allow the site's origin, then restart the gateway:
+3. On each gateway, allow your copy's origin too (it is added next to the official one), then
+   restart the gateway:
 
 ```bash
 bash server/install.sh --web-origin https://your-app.vercel.app
 ```
 
-   (or add `DOTS_WEB_ORIGINS=https://your-app.vercel.app` to `~/.hermes/.env`). Without it, every
-   browser is refused: the gateway checks the `Origin` header of each WebSocket.
+   The gateway checks the `Origin` header of each WebSocket: a browser on an origin missing from
+   `DOTS_WEB_ORIGINS` is refused.
 4. Open the site, then scan its QR code from the phone app.
 
 **Run it locally**

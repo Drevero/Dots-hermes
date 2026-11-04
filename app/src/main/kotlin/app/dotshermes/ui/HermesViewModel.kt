@@ -14,6 +14,7 @@ import app.dotshermes.data.model.ToolState
 import app.dotshermes.data.model.SubDot
 import app.dotshermes.data.model.SubDotDraft
 import app.dotshermes.ui.dots.appearance
+import app.dotshermes.ui.dots.orderedDots
 import app.dotshermes.ui.chat.ChatRow
 import app.dotshermes.ui.chat.buildChatRows
 import app.dotshermes.ui.dot.DotAccessory
@@ -51,7 +52,18 @@ data class ChatUiState(
     val activity: AgentActivity = AgentActivity.Idle,
     val rows: List<ChatRow> = emptyList(),
     val messageCount: Int = 0,
+    /** Salon de groupe : les sous-dots invités dans cette conversation (vide : conversation normale). */
+    val room: List<SubDot> = emptyList(),
+    /** Ceux qu'on peut inviter : tous les sous-dots, sauf celui dont c'est la conversation. */
+    val roomCandidates: List<SubDot> = emptyList(),
+    /** Apparence de chaque sous-dot, pour la mascotte au-dessus de ses bulles. */
+    val speakerLooks: Map<String, DotAppearance> = emptyMap(),
+    /** Salon en plein débat : le sous-dot qui a la parole, annoncé par l'en-tête (« Pebble a la parole »). */
+    val speakingName: String? = null,
 )
+
+/** Le salon de la conversation affichée, tel que le dépôt le décrit, avant mise en forme. */
+private data class RoomInfo(val invited: List<SubDot>, val candidates: List<SubDot>, val speaker: String?, val looks: Map<String, DotAppearance>)
 
 private val DoneWords = listOf("fait", "done", "finished")
 
@@ -109,8 +121,20 @@ class HermesViewModel(
             ActiveLook(dot?.appearance(main) ?: main, dot)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, ActiveLook(appearanceStore.state.value, null))
 
+    private val roomInfo = combine(repository.room, repository.speaker, repository.dots, repository.activeChat, appearanceStore.state) { invited, speaker, dots, chat, main ->
+        val byId = dots.associateBy { it.id }
+        RoomInfo(
+            invited = invited.mapNotNull(byId::get),
+            candidates = orderedDots(dots).filter { it.id != chat },
+            speaker = speaker,
+            looks = dots.associate { it.id to it.appearance(main) },
+        )
+    }
+
+    private val thread = combine(repository.messages, repository.tools, repository.hasOlder) { messages, tools, hasOlder -> Triple(messages, tools, hasOlder) }
+
     val chat: StateFlow<ChatUiState> =
-        combine(activeLook, repository.messages, repository.activity, repository.tools, repository.hasOlder) { look, messages, activity, tools, hasOlder ->
+        combine(activeLook, thread, repository.activity, roomInfo) { look, (messages, tools, hasOlder), activity, room ->
             val appearance = look.appearance
             // Un outil en cours prime sur « Réfléchit… » : l'en-tête dit ce que fait vraiment l'agent.
             val running = tools.lastOrNull { it.state == ToolState.Running }
@@ -118,10 +142,17 @@ class HermesViewModel(
             ChatUiState(
                 agentName = appearance.displayName,
                 activity = shown,
-                rows = buildChatRows(messages, activity, tools = tools, hasOlder = hasOlder),
+                rows = buildChatRows(messages, activity, tools = tools, hasOlder = hasOlder, speaker = room.speaker),
                 messageCount = messages.size,
+                room = room.invited,
+                roomCandidates = room.candidates,
+                speakerLooks = room.looks,
+                speakingName = room.speaker?.takeIf { activity != AgentActivity.Idle }?.let { id -> room.looks[id]?.displayName },
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+
+    /** Salon de groupe de la conversation affichée : ces sous-dots débattront de chaque message (vide : fermé). */
+    fun setRoom(dots: List<String>) = repository.setRoom(dots)
 
     fun connect(url: String, token: String) {
         val config = GatewayConfig(url.trim(), token.trim())

@@ -129,8 +129,15 @@ internal object GatewayProtocol {
 
     fun pushToken(token: String): String = JSONObject().put("type", "push_token").put("token", token).toString()
 
-    fun message(clientId: String, text: String, chat: String = MAIN_CHAT): String =
-        JSONObject().put("type", "message").put("client_id", clientId).put("text", text).put("chat", chat).toString()
+    /** [room] non vide : salon de groupe, ces sous-dots débattent puis le dot de la conversation conclut. */
+    fun message(clientId: String, text: String, chat: String = MAIN_CHAT, room: List<String> = emptyList()): String =
+        JSONObject().put("type", "message").put("client_id", clientId).put("text", text).put("chat", chat)
+            .apply { if (room.isNotEmpty()) put("room", JSONArray(room)) }
+            .toString()
+
+    /** Sous-dot qui parle dans le salon (trame `activity`, `welcome.speakers`) ; null = le dot lui-même. */
+    fun speakerOf(frame: JSONObject?, key: String = "speaker"): String? =
+        frame?.optString(key)?.takeIf { !frame.isNull(key) && it.isNotEmpty() }
 
     fun reaction(remoteId: String, emoji: String?): String =
         JSONObject().put("type", "reaction").put("message_id", remoteId).put("emoji", emoji ?: JSONObject.NULL).toString()
@@ -195,6 +202,8 @@ internal object GatewayProtocol {
             id = id, remoteId = id, sender = sender, content = content, sentAt = sentAt, delivery = Delivery.Read,
             turn = event.optString("turn").takeIf { !event.isNull("turn") && it.isNotEmpty() },
             seq = event.optLong("seq", 0).takeIf { it > 0 },
+            speaker = speakerOf(event),
+            speakerName = speakerOf(event, "speaker_name"),
         )
     }
 

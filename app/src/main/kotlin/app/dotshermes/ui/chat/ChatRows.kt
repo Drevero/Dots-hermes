@@ -25,6 +25,11 @@ sealed interface ChatRow {
         val showReceipt: Boolean,
         /** Juste sous un sur-message d'outils : la bulle s'y accroche au lieu de s'en écarter. */
         val afterTools: Boolean = false,
+        /**
+         * Salon de groupe : la mascotte et le nom de qui parle, au-dessus de la bulle. Seulement quand
+         * la voix change (chaque intervenant, puis le dot qui conclut), pas sur chaque bulle.
+         */
+        val showSpeaker: Boolean = false,
     ) : ChatRow {
         override val key: String get() = message.id
     }
@@ -40,7 +45,8 @@ sealed interface ChatRow {
         override val key: String = "older"
     }
 
-    data object Typing : ChatRow {
+    /** L'agent écrit ; dans un salon, [speaker] dit quel sous-dot (null : le dot de la conversation). */
+    data class Typing(val speaker: String? = null) : ChatRow {
         override val key: String = "typing"
     }
 }
@@ -58,6 +64,8 @@ fun buildChatRows(
     today: LocalDate = LocalDate.now(zone),
     tools: List<ToolCall> = emptyList(),
     hasOlder: Boolean? = null,
+    /** Salon : le sous-dot qui parle en ce moment, montré dans la bulle « écrit… ». */
+    speaker: String? = null,
 ): List<ChatRow> {
     val rows = ArrayList<ChatRow>(messages.size + 8)
     // null : pas d'historique paginé (démo) ; sinon, une ligne de tête pour charger ou dire « début ».
@@ -65,6 +73,8 @@ fun buildChatRows(
     val lastUserId = messages.lastOrNull { it.sender == Sender.User }?.id
     val trail = ToolTrail(tools)
     var openTurn: String? = null
+    // Tours joués en salon : là, chaque réponse dit qui parle, y compris celle du dot qui conclut.
+    val roomTurns = messages.mapNotNullTo(HashSet()) { m -> m.turn.takeIf { m.speaker != null } }
 
     messages.forEachIndexed { index, message ->
         val previous = messages.getOrNull(index - 1)
@@ -80,16 +90,20 @@ fun buildChatRows(
         }
         val tools = if (message.sender == Sender.Agent) message.turn?.let { trail.before(it, message.sentAt) } else null
         tools?.let(rows::add)
+        val inRoom = message.sender == Sender.Agent && (message.speaker != null || message.turn in roomTurns)
+        val sameVoice = previous != null && previous.sender == Sender.Agent && previous.speaker == message.speaker
         rows += ChatRow.Bubble(
             message = message,
             groupedWithPrev = tools == null && previous != null && sameGroup(previous, message, zone),
             groupedWithNext = next != null && sameGroup(message, next, zone) && trail.isEmptyBefore(next.turn, next.sentAt),
             showReceipt = message.id == lastUserId,
             afterTools = tools != null,
+            showSpeaker = inRoom && (!sameVoice || tools != null),
         )
     }
     trail.remaining().forEach(rows::add)
-    if (activity == AgentActivity.Typing) rows += ChatRow.Typing
+    // En salon, la mascotte de qui parle « écrit » dès qu'il réfléchit : on le regarde prendre la parole.
+    if (activity == AgentActivity.Typing || (speaker != null && activity != AgentActivity.Idle)) rows += ChatRow.Typing(speaker)
     return rows.asReversed()
 }
 
@@ -117,9 +131,9 @@ private class ToolTrail(tools: List<ToolCall>) {
     fun remaining(): List<ChatRow.Tools> = pending.keys.mapNotNull(::rest)
 }
 
-/** Deux bulles se collent si même auteur, même jour, < 3 min d'écart, et toutes deux du texte. */
+/** Deux bulles se collent si même auteur (même intervenant en salon), même jour, < 3 min d'écart, et toutes deux du texte. */
 private fun sameGroup(a: ChatMessage, b: ChatMessage, zone: ZoneId): Boolean =
-    a.sender == b.sender &&
+    a.sender == b.sender && a.speaker == b.speaker &&
         a.content is MessageContent.Text && b.content is MessageContent.Text &&
         a.sentAt.atZone(zone).toLocalDate() == b.sentAt.atZone(zone).toLocalDate() &&
         Duration.between(a.sentAt, b.sentAt) < GroupWindow

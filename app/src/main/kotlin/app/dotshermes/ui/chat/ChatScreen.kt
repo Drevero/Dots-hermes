@@ -104,6 +104,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.stringArrayResource
 import app.dotshermes.R
 import app.dotshermes.ui.dayLabel
+import androidx.compose.material.icons.rounded.Groups
+import app.dotshermes.data.model.ChatMessage
+import app.dotshermes.data.model.SubDot
+import app.dotshermes.ui.dot.DotSpecies
+import app.dotshermes.ui.theme.DotPalettes
 
 fun AgentActivity.toMood(): DotMood = when (this) {
     AgentActivity.Idle -> DotMood.Idle
@@ -157,12 +162,21 @@ fun ChatScreen(
     onSwitchDot: (String) -> Unit = {},
     onSendFile: (uri: Uri, caption: String, onTooBig: () -> Unit) -> Unit = { _, _, _ -> },
     attachments: AttachmentControls? = null,
+    /** Salon de groupe : invite ces sous-dots dans la conversation affichée (liste vide : salon fermé). */
+    onSetRoom: (List<String>) -> Unit = {},
 ) {
     val palette = LocalDotPalette.current
     val context = LocalContext.current
     var draft by rememberSaveable { mutableStateOf("") }
     var suggestionsOpen by rememberSaveable { mutableStateOf(false) }
+    var roomSheetOpen by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    /** Qui parle dans un salon : un sous-dot invité, ou le dot de la conversation ; un sous-dot fermé depuis garde son nom. */
+    fun lookFor(message: ChatMessage): DotAppearance {
+        val id = message.speaker ?: return appearance
+        return state.speakerLooks[id] ?: DotAppearance(name = message.speakerName ?: "Dot", palette = DotPalettes.Sky, species = DotSpecies.Nuage)
+    }
 
     // Liste inversée : l'index 0 est le plus récent. On ne ramène en bas que si l'utilisateur y est déjà.
     val newestKey = state.rows.firstOrNull()?.key
@@ -205,6 +219,7 @@ fun ChatScreen(
                             is ChatRow.Day -> DaySeparator(dayLabel(row))
                             is ChatRow.Bubble -> MessageRow(
                                 row = row,
+                                speakerLook = if (row.showSpeaker) lookFor(row.message) else null,
                                 onReact = { emoji -> onReact(row.message.id, emoji) },
                                 onApproval = { approved -> onApproval(row.message.id, approved) },
                                 onClarify = { response -> onClarify(row.message.id, response) },
@@ -219,7 +234,7 @@ fun ChatScreen(
                                 screen = screen.takeIf { row.key == newestToolsKey && row.calls.any { it.kind == ToolKind.Web } },
                                 onOpenScreen = onOpenScreen,
                             )
-                            ChatRow.Typing -> TypingBubble()
+                            is ChatRow.Typing -> TypingBubble(speaker = row.speaker?.let { id -> state.speakerLooks[id] })
                             is ChatRow.Older -> OlderMessages(row.hasMore, state.messageCount, onLoadOlder)
                         }
                     }
@@ -233,6 +248,7 @@ fun ChatScreen(
                 heroDots = heroDots,
                 activeChat = activeChat,
                 onSwitchDot = onSwitchDot,
+                speakingName = state.speakingName,
             )
             BrowsingPill(
                 visible = browsing && screen.hasFrame,
@@ -250,8 +266,30 @@ fun ChatScreen(
                 onSend = ::submit,
                 voice = voice,
                 onAttach = ::attach,
+                room = state.room,
+                canOpenRoom = state.roomCandidates.isNotEmpty(),
+                onOpenRoom = {
+                    suggestionsOpen = false
+                    roomSheetOpen = true
+                },
+                roomBar = {
+                    RoomBar(state.room, state.speakerLooks, state.agentName, onOpen = { roomSheetOpen = true }, onClose = { onSetRoom(emptyList()) })
+                },
             )
         }
+    }
+    if (roomSheetOpen) {
+        RoomSheet(
+            candidates = state.roomCandidates,
+            invited = state.room,
+            looks = state.speakerLooks,
+            hostName = state.agentName,
+            onApply = { ids ->
+                onSetRoom(ids)
+                roomSheetOpen = false
+            },
+            onDismiss = { roomSheetOpen = false },
+        )
     }
 }
 
@@ -269,6 +307,7 @@ private fun ChatHeader(
     heroDots: List<HeroDot> = emptyList(),
     activeChat: String = MAIN_CHAT,
     onSwitchDot: (String) -> Unit = {},
+    speakingName: String? = null,
 ) {
     val palette = LocalDotPalette.current
     Column(
@@ -298,7 +337,8 @@ private fun ChatHeader(
             }
             Text(name, style = MaterialTheme.typography.titleSmall, color = Ink.Primary)
             AnimatedContent(
-                targetState = activity.statusLabel(),
+                // En plein débat, l'en-tête annonce qui a la parole ; le dot de la conversation reste au centre.
+                targetState = speakingName?.let { stringResource(R.string.room_speaking, it) } ?: activity.statusLabel(),
                 transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
                 label = "status",
             ) { label ->
@@ -373,6 +413,10 @@ private fun Composer(
     onSend: (String) -> Unit,
     voice: VoiceControls,
     onAttach: (Uri) -> Unit,
+    room: List<SubDot> = emptyList(),
+    canOpenRoom: Boolean = false,
+    onOpenRoom: () -> Unit = {},
+    roomBar: @Composable () -> Unit = {},
 ) {
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(onAttach) }
     val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onAttach) }
@@ -408,6 +452,7 @@ private fun Composer(
                     }
                 }
                 item { AttachChip(Icons.Rounded.AttachFile, stringResource(R.string.attach_file)) { pickDocument.launch(arrayOf("*/*")) } }
+                if (canOpenRoom) item { AttachChip(Icons.Rounded.Groups, stringResource(R.string.room_chip), onClick = onOpenRoom) }
                 items(suggestions) { suggestion ->
                     Text(
                         suggestion,
@@ -421,6 +466,10 @@ private fun Composer(
                     )
                 }
             }
+        }
+        // Salon ouvert : le bandeau reste visible au-dessus du champ, on sait à qui l'on écrit.
+        AnimatedVisibility(visible = room.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            roomBar()
         }
         // Pendant l'enregistrement, la barre de vocal remplace le champ de saisie.
         voice.recording?.let { recording ->
@@ -450,7 +499,10 @@ private fun Composer(
             ) {
                 Box(Modifier.weight(1f).padding(vertical = 9.dp)) {
                     if (draft.isEmpty()) {
-                        Text(stringResource(R.string.composer_placeholder, agentName), style = MaterialTheme.typography.bodyLarge, color = Ink.Secondary)
+                        Text(
+                            if (room.isEmpty()) stringResource(R.string.composer_placeholder, agentName) else stringResource(R.string.room_placeholder),
+                            style = MaterialTheme.typography.bodyLarge, color = Ink.Secondary,
+                        )
                     }
                     BasicTextField(
                         value = draft,

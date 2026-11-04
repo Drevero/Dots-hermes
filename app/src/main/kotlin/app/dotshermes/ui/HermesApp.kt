@@ -139,6 +139,7 @@ fun HermesApp(
                         screenOpen = true
                     },
                     onSendFile = viewModel::sendAttachment,
+                    onSetRoom = viewModel::setRoom,
                     attachments = AttachmentControls(load = viewModel::attachmentFile, open = viewModel::openAttachment),
                     voice = VoiceControls(
                         recording = recording,

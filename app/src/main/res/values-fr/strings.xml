@@ -356,4 +356,21 @@
         <item>Résume mes derniers messages</item>
         <item>Merci Hermes !</item>
     </string-array>
+    <!-- Salon de groupe -->
+    <string name="room_chip">Salon de groupe</string>
+    <string name="room_title">Salon de groupe</string>
+    <string name="room_explain">Coche les sous-dots à inviter. Ils débattent de chacun de tes messages pendant %1$d tours, dans cet ordre, puis %2$s conclut.</string>
+    <string name="room_no_dots">Crée d’abord un sous-dot : il pourra ensuite rejoindre la discussion.</string>
+    <string name="room_open">Ouvrir le salon</string>
+    <string name="room_update">Mettre à jour le salon</string>
+    <string name="room_close">Fermer le salon</string>
+    <string name="room_bar_title">Salon · %1$s</string>
+    <string name="room_bar_subtitle">%1$s conclut</string>
+    <string name="room_placeholder">Demande au salon</string>
+    <string name="room_speaking">%1$s a la parole…</string>
+    <plurals name="room_limit">
+        <item quantity="one">%1$d invité au plus.</item>
+        <item quantity="many">%1$d invités au plus.</item>
+        <item quantity="other">%1$d invités au plus.</item>
+    </plurals>
 </resources>

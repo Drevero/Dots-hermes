@@ -46,6 +46,8 @@ class RoutingChatRepository(
     override val activeChat: StateFlow<String> = follow(scope) { it.activeChat }
     override val chatActivity: StateFlow<Map<String, AgentActivity>> = follow(scope) { it.chatActivity }
     override val unread: StateFlow<Map<String, Int>> = follow(scope) { it.unread }
+    override val room: StateFlow<List<String>> = follow(scope) { it.room }
+    override val speaker: StateFlow<String?> = follow(scope) { it.speaker }
 
     override suspend fun connect(config: GatewayConfig) {
         val target = if (config.isDemo) demo else gateway
@@ -67,6 +69,7 @@ class RoutingChatRepository(
     override fun refreshActivity() = active.value.refreshActivity()
     override fun loadOlder() = active.value.loadOlder()
     override fun selectChat(chat: String) = active.value.selectChat(chat)
+    override fun setRoom(dots: List<String>) = active.value.setRoom(dots)
     override fun createDot(draft: SubDotDraft) = active.value.createDot(draft)
     override fun updateDot(id: String, draft: SubDotDraft) = active.value.updateDot(id, draft)
     override fun deleteDot(id: String) = active.value.deleteDot(id)

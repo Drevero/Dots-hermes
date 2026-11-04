@@ -359,4 +359,20 @@
         <item>Summarize my latest messages</item>
         <item>Thanks Hermes!</item>
     </string-array>
+    <!-- Salon de groupe -->
+    <string name="room_chip">Group room</string>
+    <string name="room_title">Group room</string>
+    <string name="room_explain">Pick the sub-dots to invite. They debate each of your messages for %1$d rounds, in this order, then %2$s concludes.</string>
+    <string name="room_no_dots">Create a sub-dot first: it can then join the discussion.</string>
+    <string name="room_open">Open the room</string>
+    <string name="room_update">Update the room</string>
+    <string name="room_close">Close the room</string>
+    <string name="room_bar_title">Room · %1$s</string>
+    <string name="room_bar_subtitle">%1$s concludes</string>
+    <string name="room_placeholder">Ask the room</string>
+    <string name="room_speaking">%1$s has the floor…</string>
+    <plurals name="room_limit">
+        <item quantity="one">Up to %1$d guest.</item>
+        <item quantity="other">Up to %1$d guests.</item>
+    </plurals>
 </resources>

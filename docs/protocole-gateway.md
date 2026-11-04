@@ -182,3 +182,24 @@ Le dot principal est la conversation `owner`. Chaque sous-dot a sa propre conver
 | `dot_deleted` | `id` |
 
 Push : `chat` et `title` (le nom du sous-dot ; vide pour le principal) dans les données. Toutes les notifications partagent un fil, chaque dot sous son nom. « Répondre » et l'ouverture de l'app mènent à la conversation du dernier message.
+
+## Salon de groupe
+
+Depuis le bouton « + », on invite des sous-dots dans la conversation affichée. Chaque message tapé dans ce salon est débattu : chaque invité parle à son tour pendant 2 tours (3 au plus), en voyant ce que les autres viennent de dire, puis le dot de la conversation conclut.
+
+- **Sessions** : un invité parle dans une session Hermes à part, `<id du dot>~<conversation>` (par exemple `dot-ab12~owner`). Sa conversation privée reste intacte, et il se souvient des débats précédents de ce salon. Le plugin ne lui envoie que ce qu'il n'a pas encore lu (40 événements au plus), sans ses propres répliques.
+- **Consignes** : l'invité reçoit en `channel_prompt` son identité, sa spécialité, l'animateur et les autres participants, avec la consigne de répondre en quelques phrases. Le dot qui conclut reçoit la transcription du débat et sa consigne habituelle.
+- **Fil** : tout ce que dit un invité (messages, outils, approbations, prises en main) est rangé dans la conversation du salon, avec `speaker` (id du sous-dot) et `speaker_name`. Toutes les répliques portent le `turn` du message de l'utilisateur.
+- **Activité** : `activity` porte `speaker` tant qu'un invité a la parole. Le salon reste occupé d'un invité à l'autre, puis repasse en `idle` après la conclusion. `welcome.speakers` donne l'intervenant en cours à la reconnexion.
+- **Stop** : `stop` sur la conversation arrête le débat entier et le tour de l'intervenant en cours. Un nouveau message dans la conversation remplace le débat en cours.
+- **Push** : les répliques des invités ne notifient pas ; seule la conclusion notifie. Approbations et questions notifient toujours, avec le nom de l'invité.
+
+| App → gateway | Champs |
+|---|---|
+| `message` | `room` (ids des sous-dots invités, 4 au plus, dans l'ordre de parole), `rounds` (facultatif, 1 à 3, 2 par défaut) |
+
+| Gateway → app | Champs |
+|---|---|
+| `message`, `tool`, `approval`, `clarify` | `speaker`, `speaker_name` quand un invité parle |
+| `activity` | `speaker` quand un invité a la parole |
+| `welcome` | `speakers` : conversation → intervenant en cours |

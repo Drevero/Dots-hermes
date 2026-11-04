@@ -12,8 +12,13 @@ import app.dotshermes.data.model.ChatMessage
 import app.dotshermes.data.model.ConnectionState
 import app.dotshermes.data.model.GatewayConfig
 import app.dotshermes.data.model.ToolCall
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+
+private val NoRoom: StateFlow<List<String>> = MutableStateFlow(emptyList<String>()).asStateFlow()
+private val NoSpeaker: StateFlow<String?> = MutableStateFlow<String?>(null).asStateFlow()
 
 /**
  * Seul point de contact entre l'interface et l'agent Hermes.
@@ -44,6 +49,17 @@ interface ChatRepository {
     val chatActivity: StateFlow<Map<String, AgentActivity>>
     /** Messages de l'agent arrivés dans une conversation qui n'était pas affichée. */
     val unread: StateFlow<Map<String, Int>>
+
+    /**
+     * Salon de groupe de la conversation affichée : les sous-dots invités, dans l'ordre où ils parlent.
+     * Vide : conversation normale. Le mode démo n'a pas de sous-dots, donc pas de salon.
+     */
+    val room: StateFlow<List<String>> get() = NoRoom
+    /** Qui parle en ce moment dans ce salon ; null : le dot de la conversation (ou pas de débat en cours). */
+    val speaker: StateFlow<String?> get() = NoSpeaker
+
+    /** Invite ces sous-dots dans le salon de la conversation affichée (liste vide : salon fermé). */
+    fun setRoom(dots: List<String>) {}
 
     suspend fun connect(config: GatewayConfig)
     fun disconnect()

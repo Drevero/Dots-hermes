@@ -67,6 +67,10 @@ private data class ChatData(
     val loaded: Boolean = false,
     val loadingOlder: Boolean = false,
     val unread: Int = 0,
+    /** Salon de groupe : sous-dots invités ; chaque message tapé ici leur est soumis. */
+    val room: List<String> = emptyList(),
+    /** Sous-dot qui parle en ce moment dans le salon (trame `activity`) ; null : le dot lui-même. */
+    val speaker: String? = null,
 )
 
 /**
@@ -106,6 +110,8 @@ class GatewayChatRepository(
     override val tools: StateFlow<List<ToolCall>> = ofActive { it.tools }
     override val activity: StateFlow<AgentActivity> = ofActive { it.activity }
     override val hasOlder: StateFlow<Boolean> = ofActive { it.hasOlder }
+    override val room: StateFlow<List<String>> = ofActive { it.room }
+    override val speaker: StateFlow<String?> = ofActive { it.speaker }
 
     override val chatActivity: StateFlow<Map<String, AgentActivity>> =
         chats.map { all -> all.mapValues { it.value.activity } }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
@@ -204,6 +210,12 @@ class GatewayChatRepository(
         ws.send(GatewayProtocol.historyPage(0, chat))
     }
 
+    override fun setRoom(dots: List<String>) {
+        val chat = _activeChat.value
+        val known = _dots.value.mapTo(HashSet()) { it.id }
+        updateChat(chat) { it.copy(room = dots.distinct().filter { id -> id in known && id != chat }) }
+    }
+
     override fun createDot(draft: SubDotDraft) {
         val ref = UUID.randomUUID().toString()
         pendingDotRef = ref
@@ -225,8 +237,9 @@ class GatewayChatRepository(
     private fun sendTo(chat: String, text: String) {
         val message = userMessage(MessageContent.Text(text))
         updateMessages(chat) { it + message }
-        // Hors ligne, le message reste « Envoi… » et part au prochain welcome.
-        socket?.send(GatewayProtocol.message(message.id, text, chat))
+        // Hors ligne, le message reste « Envoi… » et part au prochain welcome (sans salon : le débat
+        // n'aurait plus de sens des heures plus tard, le dot répond seul).
+        socket?.send(GatewayProtocol.message(message.id, text, chat, room = chats.value[chat]?.room.orEmpty()))
     }
 
     override fun sendVoice(file: File, durationMs: Long, waveform: List<Float>) {
@@ -444,7 +457,7 @@ class GatewayChatRepository(
             return
         }
         val current = config ?: return
-        chats.update { all -> all.mapValues { it.value.copy(activity = AgentActivity.Idle, loadingOlder = false) } }
+        chats.update { all -> all.mapValues { it.value.copy(activity = AgentActivity.Idle, speaker = null, loadingOlder = false) } }
         if (tokenRefused) {
             config = null
             _connection.value = ConnectionState.Failed(reason!!)
@@ -481,7 +494,10 @@ class GatewayChatRepository(
                 bumpSeq(frame)
             }
             "read" -> updateWhere({ it.remoteId == frame.optString("id") }) { it.copy(delivery = Delivery.Read) }
-            "activity" -> updateChat(GatewayProtocol.chatOf(frame)) { it.copy(activity = GatewayProtocol.activity(frame.optString("state"))) }
+            "activity" -> updateChat(GatewayProtocol.chatOf(frame)) {
+                val activity = GatewayProtocol.activity(frame.optString("state"))
+                it.copy(activity = activity, speaker = GatewayProtocol.speakerOf(frame).takeIf { activity != AgentActivity.Idle })
+            }
             "message", "approval", "clarify" -> {
                 GatewayProtocol.toMessage(frame)?.let { message ->
                     val chat = GatewayProtocol.chatOf(frame)
@@ -567,7 +583,8 @@ class GatewayChatRepository(
         val known = dots.mapTo(HashSet()) { it.id } + MAIN_CHAT
         // Dot fermé ailleurs (autre appareil) : sa conversation disparaît aussi ici.
         if (_activeChat.value !in known) _activeChat.value = MAIN_CHAT
-        chats.update { all -> all.filterKeys { it in known } }
+        // Un sous-dot fermé quitte aussi les salons où il était invité.
+        chats.update { all -> all.filterKeys { it in known }.mapValues { (_, data) -> data.copy(room = data.room.filter { it in known }) } }
         requestedChat?.takeIf { it in known }?.let(::selectChat)
     }
 
@@ -582,7 +599,7 @@ class GatewayChatRepository(
             // la plus récente, les sous-dots rechargeront la leur à l'ouverture. On garde le non-envoyé.
             chats.update { all ->
                 all.mapValues { (chat, data) ->
-                    ChatData(messages = data.messages.filter { it.sender == Sender.User && it.remoteId == null }, loaded = false)
+                    ChatData(messages = data.messages.filter { it.sender == Sender.User && it.remoteId == null }, loaded = false, room = data.room)
                         .let { if (chat == MAIN_CHAT) it.copy(hasOlder = frame.optBoolean("has_more"), loaded = true) else it }
                 }
             }
@@ -598,8 +615,11 @@ class GatewayChatRepository(
         }
         lastSeq = maxOf(lastSeq, frame.optLong("seq"))
         val activities = frame.optJSONObject("activities")
+        val speakers = frame.optJSONObject("speakers")
         chats.update { all ->
-            all.mapValues { (chat, data) -> data.copy(activity = GatewayProtocol.activity(activities?.optString(chat).orEmpty())) }
+            all.mapValues { (chat, data) ->
+                data.copy(activity = GatewayProtocol.activity(activities?.optString(chat).orEmpty()), speaker = GatewayProtocol.speakerOf(speakers, chat))
+            }
         }
         _connection.value = ConnectionState.Connected(
             gatewayUrl = current.url,

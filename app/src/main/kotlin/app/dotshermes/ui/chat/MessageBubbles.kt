@@ -58,6 +58,7 @@ import app.dotshermes.voice.Playback
 import androidx.compose.ui.res.stringResource
 import app.dotshermes.R
 import app.dotshermes.ui.formatTime
+import app.dotshermes.ui.DotAppearance
 
 private val QuickReactions = listOf("❤️", "👍", "😂", "😮", "🎉", "👀")
 
@@ -72,13 +73,16 @@ fun MessageRow(
     onSeekVoice: (Float) -> Unit = {},
     attachments: AttachmentControls? = null,
     onTakeover: () -> Unit = {},
+    /** Salon de groupe : la mascotte de qui parle, posée au-dessus de la bulle ; null hors salon. */
+    speakerLook: DotAppearance? = null,
 ) {
     val message = row.message
     val fromUser = message.sender == Sender.User
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = if (row.groupedWithPrev || row.afterTools) 4.dp else 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = if ((row.groupedWithPrev || row.afterTools) && speakerLook == null) 4.dp else 12.dp),
         horizontalAlignment = if (fromUser) Alignment.End else Alignment.Start,
     ) {
+        speakerLook?.let { SpeakerHeader(it) }
         when (val content = message.content) {
             is MessageContent.Text -> TextBubble(message, content.text, fromUser, row.groupedWithPrev, row.groupedWithNext, onReact)
             is MessageContent.Task -> TaskCard(content, Modifier.fillMaxWidth(0.86f))
@@ -246,13 +250,20 @@ private fun ReactionPicker(
     }
 }
 
-/** Les trois points qui rebondissent pendant que l'agent écrit. */
+/** Les trois points qui rebondissent pendant que l'agent écrit ; en salon, sous la mascotte de [speaker] qui parle. */
 @Composable
-fun TypingBubble() {
+fun TypingBubble(speaker: DotAppearance? = null) {
+    Column(Modifier.padding(top = 12.dp)) {
+        speaker?.let { SpeakerHeader(it, talking = true) }
+        TypingDots()
+    }
+}
+
+@Composable
+private fun TypingDots() {
     val transition = rememberInfiniteTransition(label = "typing")
     Row(
         modifier = Modifier
-            .padding(top = 12.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(Ink.AgentBubble)
             .padding(horizontal = 16.dp, vertical = 15.dp),

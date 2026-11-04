@@ -60,6 +60,14 @@ TAKEOVER_FPS_DELAY = 0.12  # faster while the owner drives the page: their taps 
 _KEYS = {"Enter": ("Enter", "Enter", 13, "\r"), "Backspace": ("Backspace", "Backspace", 8, ""),
          "Tab": ("Tab", "Tab", 9, ""), "Escape": ("Escape", "Escape", 27, "")}
 SCREEN_SCALE = 0.6  # downscale frames: phone-sized, ~40-80 KB JPEG each
+# Group room: the owner invites sub-dots into the current conversation; they debate for a few rounds,
+# each in its own Hermes session ``<dot id>~<host chat>``, then the host dot concludes.
+ROOM_SEP = "~"
+ROOM_ROUNDS = 2
+ROOM_MAX_ROUNDS = 3
+ROOM_MAX_SPEAKERS = 4
+ROOM_TURN_TIMEOUT_S = 600
+ROOM_CONTEXT_EVENTS = 40  # at most this many recent events of the room are replayed to a speaker
 _MEDIA_MESSAGE_TYPES = {"image": MessageType.PHOTO, "video": MessageType.VIDEO, "audio": MessageType.AUDIO,
                         "document": MessageType.DOCUMENT}
 VOICE_TYPES = {"audio/mp4": ".m4a", "audio/aac": ".aac", "audio/ogg": ".ogg", "audio/webm": ".webm"}
@@ -181,6 +189,8 @@ class _History:
         self._db.execute("CREATE INDEX IF NOT EXISTS events_chat ON events(chat, seq)")
         self._migrate_jsonl(path.with_name("history.jsonl"))
         self.seq = self._db.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
+        # Set by the adapter: rewrites an event before it is stored (a room speaker's session -> its room).
+        self.route: Any = lambda event: event
 
     def _migrate_jsonl(self, legacy: Path) -> None:
         """One-time import of the former JSONL file, kept aside as ``history.jsonl.migrated``."""
@@ -199,7 +209,7 @@ class _History:
 
     def add(self, event: dict[str, Any]) -> dict[str, Any]:
         self.seq += 1
-        event = {**event, "seq": self.seq, "chat": event.get("chat") or OWNER}
+        event = self.route({**event, "seq": self.seq, "chat": event.get("chat") or OWNER})
         self._db.execute("INSERT INTO events (seq, id, data, chat) VALUES (?, ?, ?, ?)",
                          (self.seq, event.get("id"), json.dumps(event, ensure_ascii=False), event["chat"]))
         return event
@@ -231,6 +241,12 @@ class _History:
                                 (chat, bound, limit + 1)).fetchall()
         has_more = len(rows) > limit
         return [json.loads(r[0]) for r in reversed(rows[:limit])], has_more
+
+    def after(self, chat: str, seq: int, limit: int) -> list[dict[str, Any]]:
+        """The last ``limit`` events of one chat after ``seq``, oldest first (what a room speaker missed)."""
+        rows = self._db.execute("SELECT data FROM events WHERE chat = ? AND seq > ? ORDER BY seq DESC LIMIT ?",
+                                (chat, seq, limit)).fetchall()
+        return [json.loads(r[0]) for r in reversed(rows)]
 
     def last_ts(self, chat: str) -> int:
         row = self._db.execute("SELECT data FROM events WHERE chat = ? ORDER BY seq DESC LIMIT 1", (chat,)).fetchone()
@@ -393,6 +409,13 @@ class DotsAdapter(BasePlatformAdapter):
         self._host, self._port = _parse_bind(_extra_or_secret(extra, "bind", "DOTS_BIND", DEFAULT_BIND))
         self._history = _History(get_hermes_home() / "platforms" / "dots" / "history.db")
         self._dots = _Dots(get_hermes_home() / "platforms" / "dots" / "dots.json")
+        self._history.route = self._outward
+        # Group rooms: host chat -> running debate; synthetic message id -> its end of processing;
+        # speaker session -> last history seq it has read.
+        self._rooms: dict[str, asyncio.Task] = {}
+        self._room_waiters: dict[str, asyncio.Future] = {}
+        self._room_seen: dict[str, int] = {}
+        self._room_current: dict[str, str] = {}  # host chat -> session speaking now (a speaker's, or the host's)
         self._dedup = MessageDeduplicator(max_size=1000, ttl_seconds=600)
         self._runner: Optional["web.AppRunner"] = None
         # Every connected app (phone, quick reply from a notification, a second device): each one
@@ -515,6 +538,7 @@ class DotsAdapter(BasePlatformAdapter):
 
     async def _push(self, frame: dict[str, Any], ws: Optional["web.WebSocketResponse"] = None) -> None:
         """To one app (reply to its request) or to all of them (conversation events)."""
+        frame = self._outward(frame)
         targets = [ws] if ws is not None else list(self._clients)
         if not targets:
             return
@@ -541,9 +565,10 @@ class DotsAdapter(BasePlatformAdapter):
                 has_more = reset
             else:
                 (history, has_more), reset = self._history.page(OWNER, None, INITIAL_PAGE), True
+            activities, speakers = self._public_activities()
             await self._push({
-                "type": "welcome", "agent": "Hermes", "seq": self._history.seq, "activity": self._activity_of(OWNER),
-                "activities": self._activities, "history": history, "reset": reset, "has_more": has_more,
+                "type": "welcome", "agent": "Hermes", "seq": self._history.seq, "activity": activities.get(OWNER, "idle"),
+                "activities": activities, "speakers": speakers, "history": history, "reset": reset, "has_more": has_more,
                 "dots": self._dots_payload(),
             }, ws)
         elif kind == "message":
@@ -582,7 +607,9 @@ class DotsAdapter(BasePlatformAdapter):
             await self._cron_action(str(frame.get("id") or ""), str(frame.get("action") or ""))
             await self._push(await self._activity_snapshot(), ws)
         elif kind == "stop":
-            await self._stop_turn(self._chat_of(frame))
+            chat = self._chat_of(frame)
+            if not await self._cancel_room(chat):  # a debate stops as a whole, its current speaker included
+                await self._stop_turn(chat)
         elif kind == "reaction":
             await self._on_user_reaction(frame)
         elif kind == "approval":
@@ -605,7 +632,8 @@ class DotsAdapter(BasePlatformAdapter):
         return chat if chat == OWNER or self._dots.get(chat) else OWNER
 
     def _chat_name(self, chat: str) -> str:
-        dot = self._dots.get(chat)
+        room = self._room_parts(chat)
+        dot = self._dots.get(room[0] if room else chat)
         return dot["name"] if dot else "Hermes"
 
     def _dots_payload(self) -> list[dict[str, Any]]:
@@ -652,10 +680,13 @@ class DotsAdapter(BasePlatformAdapter):
             return
         if self._activity_of(dot_id) != "idle":
             await self._stop_turn(dot_id)
+        await self._cancel_room(dot_id)  # before it is forgotten: its speaker's words still land in its room
         self._dots.delete(dot_id)
         self._history.delete_chat(dot_id)
         self._activities.pop(dot_id, None)
         self._turns.pop(dot_id, None)
+        for session in [s for s in self._room_seen if s.startswith(dot_id + ROOM_SEP) or s.endswith(ROOM_SEP + dot_id)]:
+            self._room_seen.pop(session, None)
         await self._push({"type": "dot_deleted", "id": dot_id})
         await self._push_dots()
 
@@ -665,13 +696,164 @@ class DotsAdapter(BasePlatformAdapter):
         if not text or self._dedup.is_duplicate(client_id):
             return
         chat = self._chat_of(frame)
+        speakers = self._room_speakers(chat, frame.get("room"))
         event = self._history.add({
             "type": "message", "id": uuid.uuid4().hex, "role": "user", "text": text, "ts": _now_ms(), "final": True, "chat": chat,
+            **({"room": [d["id"] for d in speakers]} if speakers else {}),
         })
         await self._push({"type": "ack", "client_id": client_id, "id": event["id"], "seq": event["seq"], "ts": event["ts"], "chat": chat}, ws)
+        # A new message replaces a debate still running in this conversation.
+        await self._cancel_room(chat, stop_host=False)
+        if speakers:
+            rounds = min(max(int(frame.get("rounds") or ROOM_ROUNDS), 1), ROOM_MAX_ROUNDS)
+            self._rooms[chat] = asyncio.ensure_future(self._run_room(chat, event, speakers, rounds))
+            return
         await self.handle_message(MessageEvent(
             text=text, message_type=MessageType.TEXT, source=self._source(chat, event["id"]), message_id=event["id"],
             raw_message=frame, timestamp=datetime.now(tz=UTC), channel_prompt=self._channel_prompt(chat)))
+
+    # -- Group room (sub-dots invited into a conversation) ---------------------------------------
+
+    def _room_parts(self, chat: Any) -> Optional[tuple[str, str]]:
+        """``<dot>~<host>`` -> (speaking dot, conversation shown in the app); None for a plain chat."""
+        if not isinstance(chat, str) or ROOM_SEP not in chat:
+            return None
+        dot, _, host = chat.partition(ROOM_SEP)
+        return dot, host if host == OWNER or self._dots.get(host) else OWNER
+
+    def _outward(self, event: dict[str, Any]) -> dict[str, Any]:
+        """What a speaker says in its room session is stored and shown in the room, under its name."""
+        room = self._room_parts(event.get("chat"))
+        if room is None:
+            return event
+        # The name too: the room keeps showing who spoke after that sub-dot is closed.
+        return {**event, "chat": room[1], "speaker": room[0], "speaker_name": self._chat_name(room[0])}
+
+    def _room_speakers(self, host: str, ids: Any) -> list[dict[str, Any]]:
+        """Sub-dots invited by the app, in its order: known, distinct, never the host itself."""
+        if not isinstance(ids, list):
+            return []
+        speakers: list[dict[str, Any]] = []
+        for dot_id in ids:
+            dot = self._dots.get(str(dot_id))
+            if dot and dot["id"] != host and dot not in speakers:
+                speakers.append(dot)
+        return speakers[:ROOM_MAX_SPEAKERS]
+
+    def _public_activities(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Activity per conversation as the app knows them: a busy speaker makes its room busy."""
+        activities = {chat: state for chat, state in self._activities.items() if self._room_parts(chat) is None}
+        speakers: dict[str, str] = {}
+        for chat, state in self._activities.items():
+            room = self._room_parts(chat)
+            if room and state != "idle":
+                activities[room[1]], speakers[room[1]] = state, room[0]
+        return activities, speakers
+
+    async def _push_activity(self, chat: str, state: str) -> None:
+        """Always sent (no change check): it also clears the speaker shown by the app."""
+        self._activities[chat] = state
+        await self._push({"type": "activity", "chat": chat, "state": state})
+
+    async def _cancel_room(self, host: str, *, stop_host: bool = True) -> bool:
+        """Stop the debate running in ``host``, and the turn of whoever is speaking. ``stop_host`` False:
+        a new owner message replaces the debate, and that message already takes over the host's turn."""
+        task = self._rooms.pop(host, None)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        speaking = self._room_current.pop(host, host)
+        if speaking != host:
+            # Quiet from now on: a reply already on its way must not show its room as busy again.
+            self._activities[speaking] = "idle"
+        if speaking != host or stop_host:
+            await self._stop_turn(speaking)
+        return True
+
+    def _room_lines(self, host: str, since: int, exclude: Optional[str] = None) -> str:
+        """The room since ``since`` as a transcript, without what ``exclude`` said itself (it knows)."""
+        lines = []
+        for event in self._history.after(host, since, ROOM_CONTEXT_EVENTS):
+            if event.get("type") != "message" or (exclude and event.get("speaker") == exclude):
+                continue
+            text = str(event.get("text") or event.get("transcript") or "").strip()
+            if event.get("kind") == "file":
+                text = f"[{event.get('name') or self._t('file')}] {text}".strip()
+            if text:
+                who = "Owner" if event.get("role") == "user" else self._chat_name(event.get("speaker") or host)
+                lines.append(f"{who}: {text}")
+        return "\n\n".join(lines) or "(nothing new)"
+
+    def _room_prompt(self, dot: dict[str, Any], host: str, speakers: list[dict[str, Any]]) -> str:
+        others = ", ".join(f"\"{d['name']}\"" for d in speakers if d["id"] != dot["id"]) or "nobody else"
+        mission = dot.get("mission") or self._t("default_mission")
+        return (f"In this conversation you are \"{dot['name']}\", a sub-dot of the owner's assistant, taking part in a "
+                f"group discussion in the Hermes app. \"{self._chat_name(host)}\" moderates it and will conclude; the "
+                f"other participants are {others}. Your specialty: {mission}. Speak only as yourself, in a few sentences: "
+                "react to what the others just said, agree or disagree with reasons, add what your specialty brings, "
+                "never repeat a point already made. No greeting, no heading, no sign-off. Use tools only when the "
+                f"discussion really needs a fact. Answer in {_LANGUAGE_NAMES[self._lang]} unless asked otherwise.")
+
+    async def _room_turn(self, chat: str, text: str, channel_prompt: Optional[str]) -> None:
+        """One synthetic message to ``chat``'s session; returns once Hermes has finished answering it."""
+        message_id = uuid.uuid4().hex
+        done = asyncio.get_running_loop().create_future()
+        self._room_waiters[message_id] = done
+        try:
+            await self.handle_message(MessageEvent(
+                text=text, message_type=MessageType.TEXT, source=self._source(chat, message_id), message_id=message_id,
+                raw_message={"type": "room"}, timestamp=datetime.now(tz=UTC), channel_prompt=channel_prompt))
+            try:
+                await asyncio.wait_for(asyncio.shield(done), ROOM_TURN_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                logger.warning("[%s] Room speaker %s timed out", self.name, chat)
+                await self._stop_turn(chat)
+        finally:
+            self._room_waiters.pop(message_id, None)
+
+    async def _run_room(self, host: str, question: dict[str, Any], speakers: list[dict[str, Any]], rounds: int) -> None:
+        """Each invited sub-dot speaks in turn for ``rounds`` rounds, seeing what the others said;
+        then the host dot (the conversation's own) answers the owner with a conclusion."""
+        current = host
+        self._turns[host] = question["id"]
+        await self._push({"type": "read", "id": question["id"]})
+        await self._push_activity(host, "thinking")
+        try:
+            for round_no in range(1, rounds + 1):
+                for dot in speakers:
+                    if not self._dots.get(dot["id"]):  # closed during the debate
+                        continue
+                    current = self._room_current[host] = f"{dot['id']}{ROOM_SEP}{host}"
+                    self._turns[current] = question["id"]
+                    lines = self._room_lines(host, self._room_seen.get(current, question["seq"] - 1), exclude=dot["id"])
+                    await self._room_turn(current, f"[Group discussion · round {round_no}/{rounds}]\n\n{lines}\n\n"
+                                                   f"Your turn, {dot['name']}.", self._room_prompt(dot, host, speakers))
+                    self._room_seen[current] = self._history.seq
+                    self._turns.pop(current, None)
+            current = self._room_current[host] = host
+            names = ", ".join(d["name"] for d in speakers)
+            await self._push_activity(host, "thinking")  # the host speaks now: no speaker shown any more
+            await self._room_turn(host, f"[Group discussion with {names}; you moderate it]\n\n"
+                                        f"{self._room_lines(host, question['seq'] - 1)}\n\n"
+                                        "The discussion is over: now answer the owner yourself. Synthesize what matters, "
+                                        "settle the disagreements and give a clear conclusion or next step, briefly, "
+                                        "without repeating each participant.", self._channel_prompt(host))
+        except asyncio.CancelledError:
+            # _cancel_room already stopped the speaker; a debate that replaces this one sets its own activity.
+            if host not in self._rooms:
+                await self._push_activity(host, "idle")
+            raise
+        except Exception:
+            logger.exception("[%s] Group room failed", self.name)
+            await self._push_activity(host, "idle")
+        finally:
+            if self._turns.get(host) == question["id"]:
+                self._turns.pop(host, None)
+            if current != host:
+                self._turns.pop(current, None)
+            if self._rooms.get(host) is asyncio.current_task():
+                self._rooms.pop(host, None)
+                self._room_current.pop(host, None)
 
     async def _on_user_voice(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         """Voice note: stored on disk, replayable by the app, handed to Hermes as a VOICE event
@@ -1058,7 +1240,10 @@ class DotsAdapter(BasePlatformAdapter):
     # -- Activity --------------------------------------------------------------------------------
 
     def _known(self, chat_id: Optional[str]) -> str:
-        """Hermes' chat id for an outbound call; cron and unknown targets land in the main dot."""
+        """Hermes' chat id for an outbound call; cron and unknown targets land in the main dot. A room
+        speaker's session is kept as is: ``_outward`` files what it says under its room."""
+        if chat_id and self._room_parts(chat_id) and self._dots.get(chat_id.partition(ROOM_SEP)[0]):
+            return chat_id
         return chat_id if chat_id and (chat_id == OWNER or self._dots.get(chat_id)) else OWNER
 
     def _activity_of(self, chat: str) -> str:
@@ -1082,7 +1267,8 @@ class DotsAdapter(BasePlatformAdapter):
 
     async def on_processing_start(self, event: MessageEvent) -> None:
         chat = self._known(event.source.chat_id if event.source else None)
-        if event.message_id:
+        # Room turns are synthetic messages: their turn stays the owner's question, nothing to mark read.
+        if event.message_id and event.message_id not in self._room_waiters:
             self._turns[chat] = event.message_id
             await self._push({"type": "read", "id": event.message_id})
         await self._set_activity(chat, "thinking")
@@ -1090,7 +1276,14 @@ class DotsAdapter(BasePlatformAdapter):
     async def on_processing_complete(self, event: MessageEvent, outcome) -> None:
         await super().on_processing_complete(event, outcome)
         chat = self._known(event.source.chat_id if event.source else None)
-        await self._set_activity(chat, "idle")
+        waiter = self._room_waiters.get(event.message_id or "")
+        if waiter is not None and not waiter.done():
+            waiter.set_result(None)
+        if self._room_parts(chat):
+            # A speaker is done; the debate goes on: its room stays busy, the next speaker takes over.
+            self._activities[chat] = "idle"
+        else:
+            await self._set_activity(chat, "idle")
         # Calls without a tool_call_id (or interrupted ones) never get a post hook: close them here.
         for call_id in list(self._tool_started):
             await self.tool_finished(call_id, failed=False)
@@ -1134,9 +1327,12 @@ class DotsAdapter(BasePlatformAdapter):
             return
         if not self._push_sender.enabled or not self._push_sender.tokens or not body.strip():
             return
-        # ``title`` is empty for the main dot: the app shows the name the owner gave it.
+        # ``title`` is empty for the main dot: the app shows the name the owner gave it. A room speaker
+        # (approval, question) is named, and the notification opens its room.
+        room = self._room_parts(chat)
         title = "" if chat == OWNER else self._chat_name(chat)
-        data = {"kind": kind, "id": event_id, "chat": chat, "title": title, "body": body[:PUSH_BODY_LIMIT], "ts": str(_now_ms())}
+        data = {"kind": kind, "id": event_id, "chat": room[1] if room else chat, "title": title,
+                "body": body[:PUSH_BODY_LIMIT], "ts": str(_now_ms())}
         asyncio.ensure_future(self._push_sender.send(data))
 
     _FAIL_EMOJI = "⚠️"
@@ -1159,7 +1355,8 @@ class DotsAdapter(BasePlatformAdapter):
             "text": content[:MAX_MESSAGE_LENGTH], "ts": _now_ms(), "final": True,
         })
         await self._push(event)
-        self._notify("message", event["id"], content, chat)
+        if not self._room_parts(chat):  # a debate would ring once per speaker: only its conclusion notifies
+            self._notify("message", event["id"], content, chat)
         if self._activity_of(chat) != "idle":
             await self._set_activity(chat, "typing")
         return SendResult(success=True, message_id=event["id"])
@@ -1167,7 +1364,9 @@ class DotsAdapter(BasePlatformAdapter):
     async def edit_message(self, chat_id: str, message_id: str, content: str, *, finalize: bool = False) -> SendResult:
         if self._history.update(message_id, text=content[:MAX_MESSAGE_LENGTH], final=finalize) is None:
             return SendResult(success=False, error="Unknown message")
-        await self._set_activity(self._known(chat_id), "idle" if finalize else "typing")
+        chat = self._known(chat_id)
+        # A room speaker's last edit is not the end of the debate: its room keeps "typing" until the next one.
+        await self._set_activity(chat, "idle" if finalize and not self._room_parts(chat) else "typing")
         await self._push({"type": "edit", "id": message_id, "text": content[:MAX_MESSAGE_LENGTH], "final": finalize})
         return SendResult(success=True, message_id=message_id)
 
@@ -1202,6 +1401,9 @@ class DotsAdapter(BasePlatformAdapter):
     def _chat_from_session_key(self, session_key: str) -> str:
         """Session keys embed the chat id (``…:dots:dm:<chat>…``): find which dot asked."""
         parts = str(session_key or "").split(":")
+        room = next((p for p in parts if self._room_parts(p)), None)
+        if room:  # a room speaker's session: ``_outward`` shows its card in the room, under its name
+            return self._known(room)
         return next((d["id"] for d in self._dots.all() if d["id"] in parts), OWNER)
 
     async def get_chat_info(self, chat_id: str) -> dict[str, Any]:

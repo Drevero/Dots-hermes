@@ -79,6 +79,10 @@ data class ChatMessage(
     val turn: String? = null,
     /** Rang dans l'historique du gateway : sert à demander la page précédente. */
     val seq: Long? = null,
+    /** Salon de groupe : le sous-dot invité qui a dit ce message ; null = le dot de la conversation. */
+    val speaker: String? = null,
+    /** Son nom au moment où il a parlé : le fil le montre encore une fois ce sous-dot fermé. */
+    val speakerName: String? = null,
 )
 
 enum class ToolState { Running, Done, Error }

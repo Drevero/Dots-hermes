@@ -146,7 +146,24 @@ These work, but rely on Hermes internals or are recent. Expect rough edges.
 | **Live browser screen** | Watch the agent's browser in real time (about 3 frames per second, only while you watch). Uses Hermes' in-process CDP seam for plugins, an internal API that may change between Hermes versions. |
 | **Take over the browser** | When a page needs a human (login, 2FA, captcha), the agent hands you its browser; you tap, scroll and type on its page from your phone, then hand it back. Input is validated on Chromium; the agent must call the `browser_request_takeover` tool, which is not guaranteed. What you type goes to the page only, never to the chat or the model. |
 | **Sub-dots** | Extra agents next to your main one, each with its own conversation and Hermes session: **temporary** ones for a single mission, **permanent** ones with their own name, specialty, mascot and colour. Swipe the mascot to switch. |
+| **Group room** | From the *+* menu, invite sub-dots into the current conversation: they debate each of your messages for two rounds, each with its mascot above its bubbles, then the conversation's own dot concludes. Each guest speaks in a separate Hermes session, so its private conversation stays untouched. *Stop* ends the whole debate. |
 | **Several devices at once** | The gateway accepts several connected apps and broadcasts the conversation to all of them. |
+
+#### Group room
+
+Ask several of your agents at once and watch them talk it through:
+
+1. Tap **+** under the conversation, then **Group room**.
+2. Tick the sub-dots to invite (up to four). The number next to each one is its turn to speak.
+3. Tap **Open the room**. A banner above the message field shows who is in the room; its **×** closes it.
+4. Send a message. Each guest answers in turn for two rounds and sees what the others just said. Its
+   mascot and name sit above its bubbles, and the header says who has the floor. Then the
+   conversation's own dot sums up and gives a conclusion.
+
+Each guest speaks in its own Hermes session for that room, so its private conversation stays as it was,
+and it remembers earlier debates in the same room. Tools, approvals and takeovers requested by a guest
+show up in the room under its name. Only the conclusion sends a push notification. *Stop* (Activity
+view) ends the whole debate.
 
 ### Roadmap
 
@@ -570,7 +587,7 @@ Run the unit tests with:
 ## Documentation
 
 - [Gateway protocol](docs/protocole-gateway.md): every frame, history, attachments, live screen,
-  takeover, sub-dots, push (French).
+  takeover, sub-dots, group room, push (French).
 
 ---
 

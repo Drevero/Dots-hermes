@@ -26,7 +26,8 @@
 #   --voice [MODEL]      installe la transcription locale (faster-whisper) ; modèle : tiny|base|small (défaut : small)
 #   --stt-language LANG  langue de la transcription (défaut : fr ; "" = détection automatique)
 #   --fcm-key FILE       clé JSON du compte de service Firebase, pour les notifications push
-#   --web-origin URL     origine de l'app web autorisée (ex. https://dots.vercel.app) ; répétable
+#   --web-origin URL     autre origine de l'app web à autoriser, en plus de https://dots-hermes.vercel.app
+#                        (toujours autorisée) ; répétable
 #   --rotate-token       génère un nouveau jeton même s'il en existe déjà un (l'app devra être ré-appairée)
 #   --no-restart         ne redémarre pas le gateway (à faire soi-même ensuite)
 #   --dry-run            affiche ce qui serait fait, sans rien modifier
@@ -51,6 +52,8 @@ VOICE_MODEL=""
 STT_LANGUAGE="fr"
 FCM_KEY=""
 WEB_ORIGINS=""
+# App web officielle, toujours autorisée (voir web/ et docs/appairage-web.md).
+DEFAULT_WEB_ORIGIN="https://dots-hermes.vercel.app"
 ROTATE_TOKEN=0
 RESTART=1
 DRY_RUN=0
@@ -212,11 +215,14 @@ fi
 [ -n "$(env_get DOTS_ALLOWED_USERS)" ] || env_set DOTS_ALLOWED_USERS owner
 [ -n "$(env_get DOTS_HOME_CHANNEL)" ] || env_set DOTS_HOME_CHANNEL owner
 [ -z "$AGENT_NAME" ] || env_set DOTS_AGENT_NAME "$AGENT_NAME"
-# App web (appairage par QR) : sans origine autorisée, le gateway refuse tout navigateur.
-if [ -n "$WEB_ORIGINS" ]; then
-    env_set DOTS_WEB_ORIGINS "$WEB_ORIGINS"
-    ok "app web autorisée depuis $WEB_ORIGINS"
-fi
+# App web (appairage par QR) : le gateway refuse tout navigateur dont l'origine n'est pas listée.
+# L'app web officielle est toujours autorisée ; s'y ajoutent les origines déjà configurées et les
+# --web-origin, normalisées (minuscules, sans « / » final) et sans doublon.
+ALL_ORIGINS="$(printf '%s\n' "$DEFAULT_WEB_ORIGIN" "$(env_get DOTS_WEB_ORIGINS)" "$WEB_ORIGINS" \
+    | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's#/*$##' | tr '[:upper:]' '[:lower:]' \
+    | awk 'NF && !seen[$0]++' | paste -sd, -)"
+[ "$(env_get DOTS_WEB_ORIGINS)" = "$ALL_ORIGINS" ] || env_set DOTS_WEB_ORIGINS "$ALL_ORIGINS"
+ok "app web autorisée depuis $ALL_ORIGINS"
 run chmod 600 "$ENV_FILE"
 ok "écoute sur $BIND, propriétaire unique « owner »"
 
@@ -306,5 +312,7 @@ if [ "$DRY_RUN" = 1 ]; then
 else
     echo "    Jeton    ${BOLD}$(env_get DOTS_TOKEN)${RESET}"
 fi
+echo
+echo "  App web  ${BOLD}$DEFAULT_WEB_ORIGIN${RESET} (scanne son QR code depuis l'app)"
 echo
 echo "  ${DIM}Le jeton est le seul identifiant de l'app : garde-le pour toi.${RESET}"

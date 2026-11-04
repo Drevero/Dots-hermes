@@ -98,7 +98,9 @@ Corps déposé (tout le base64url du protocole est **sans `=`** : `Base64.getUrl
 
 - `new WebSocket(url, ["dots.v1", "dots.token." + token])`. Le gateway renvoie le sous-protocole `dots.v1`.
 - Le gateway n'accepte un navigateur que si son en-tête `Origin` figure dans `DOTS_WEB_ORIGINS`
-  (liste séparée par des virgules ; option `--web-origin` de `install.sh`). Sinon : HTTP 403.
+  (liste séparée par des virgules). `install.sh` y met toujours l'app web officielle,
+  `https://dots-hermes.vercel.app`, en gardant les origines déjà présentes et celles passées avec
+  `--web-origin`. Sinon : HTTP 403.
 - Jeton web inconnu ou révoqué : la connexion s'ouvre puis se ferme aussitôt avec le code **4401**
   (après une trame `{"type":"error","code":"unauthorized"}`). Le navigateur oublie alors cet agent.
 - Ensuite, le protocole est celui de l'app (`docs/protocole-gateway.md`), sans `push_token`.

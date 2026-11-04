@@ -7,6 +7,7 @@ import app.dotshermes.R
 import app.dotshermes.data.ChatRepository
 import app.dotshermes.data.toolLabel
 import app.dotshermes.data.model.ActivitySnapshot
+import app.dotshermes.data.model.UsageWindow
 import app.dotshermes.data.model.AgentActivity
 import app.dotshermes.data.model.AgentProfile
 import app.dotshermes.data.model.ApprovalStatus
@@ -132,6 +133,9 @@ class GatewayChatRepository(
 
     private val _activitySnapshot = MutableStateFlow<ActivitySnapshot?>(null)
     override val activitySnapshot: StateFlow<ActivitySnapshot?> = _activitySnapshot.asStateFlow()
+
+    private val _usage = MutableStateFlow<UsageWindow?>(null)
+    override val usage: StateFlow<UsageWindow?> = _usage.asStateFlow()
 
     /** Le flux d'écran est demandé : à renvoyer après une reconnexion. */
     @Volatile private var watchingScreen = false
@@ -330,6 +334,10 @@ class GatewayChatRepository(
 
     override fun refreshActivity() {
         socket?.send(GatewayProtocol.activityGet())
+    }
+
+    override fun requestUsage(from: Instant, to: Instant) {
+        socket?.send(GatewayProtocol.usageGet(from, to))
     }
 
     override fun cronAction(id: String, action: CronAction) {
@@ -555,6 +563,7 @@ class GatewayChatRepository(
                 (m.content as? MessageContent.Takeover)?.let { m.copy(content = it.copy(pending = false)) } ?: m
             }
             "activity_snapshot" -> _activitySnapshot.value = GatewayProtocol.toActivity(frame)
+            "usage" -> _usage.value = GatewayProtocol.toUsage(frame)
             "audio", "file_data" -> {
                 val bytes = frame.optString("data").takeIf { it.isNotEmpty() }?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
                 audioRequests.remove(frame.optString("id"))?.complete(bytes)

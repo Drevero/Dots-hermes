@@ -118,8 +118,9 @@ Used daily and tested end to end against Hermes Agent 0.22.
   never as a chat bubble. Tap it to see the full timeline, with durations and failures.
 - **Approvals**: sensitive commands wait for your go-ahead, from the chat or straight from the notification.
 - **Clarifying questions** from the agent, answered with one tap.
-- **Activity view**: what the agent is doing now (with a *Stop* button), its scheduled tasks
-  (pause, resume, run now) and recent exchanges.
+- **Activity view**: a GitHub-style heatmap of the month's usage (tokens or messages, darker on busier
+  days, browse back month by month, tap a day for its numbers), what the agent is doing now (with a
+  *Stop* button), its scheduled tasks (pause, resume, run now) and recent exchanges.
 
 **Media**
 - **Voice notes**: record, replay with a waveform, and see what the agent heard (transcribed on your

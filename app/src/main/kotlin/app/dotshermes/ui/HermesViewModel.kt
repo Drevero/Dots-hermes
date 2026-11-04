@@ -21,6 +21,7 @@ import app.dotshermes.ui.dot.DotAccessory
 import app.dotshermes.ui.dot.DotSpecies
 import app.dotshermes.ui.theme.ThemeMode
 import app.dotshermes.ui.theme.DotPalette
+import java.time.Instant
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
 import android.net.Uri
 import app.dotshermes.attach.Attachments
 import app.dotshermes.data.model.ActivitySnapshot
+import app.dotshermes.data.model.UsageWindow
 import app.dotshermes.data.model.CronAction
 import app.dotshermes.data.model.ScreenInput
 import app.dotshermes.data.model.ScreenState
@@ -78,6 +80,7 @@ class HermesViewModel(
 
     val screen: StateFlow<ScreenState> = repository.screen
     val activitySnapshot: StateFlow<ActivitySnapshot?> = repository.activitySnapshot
+    val usage: StateFlow<UsageWindow?> = repository.usage
 
     /** Les derniers échanges et le travail qu'ils ont déclenché, pour la vue Activité. */
     val turns: StateFlow<List<TurnSummary>> = combine(repository.messages, repository.tools) { messages, tools ->
@@ -235,6 +238,8 @@ class HermesViewModel(
     }
 
     fun refreshActivity() = repository.refreshActivity()
+
+    fun requestUsage(from: Instant, to: Instant) = repository.requestUsage(from, to)
 
     fun cronAction(id: String, action: CronAction) = repository.cronAction(id, action)
 

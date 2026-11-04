@@ -177,6 +177,15 @@ data class ActivitySnapshot(
     val browserOpen: Boolean,
 )
 
+/**
+ * Consommation d'une heure UTC (trame `usage`) : [hour] compte les heures depuis l'époque Unix,
+ * [tokens] tout ce que l'agent a dépensé (tâches planifiées comprises), [messages] ceux échangés dans l'app.
+ */
+data class UsageHour(val hour: Long, val tokens: Long, val messages: Int)
+
+/** Réponse du gateway pour la fenêtre [from, to) : seules les heures actives y figurent. */
+data class UsageWindow(val from: Instant, val to: Instant, val hours: List<UsageHour>)
+
 /** Geste de l'utilisateur sur l'écran du navigateur de l'agent (prise en main). x, y : fractions de l'image. */
 sealed interface ScreenInput {
     data class Tap(val x: Float, val y: Float) : ScreenInput

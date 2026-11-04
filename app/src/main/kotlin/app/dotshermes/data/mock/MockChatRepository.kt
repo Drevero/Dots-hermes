@@ -22,6 +22,8 @@ import app.dotshermes.data.model.StepState
 import app.dotshermes.data.model.TaskStep
 import app.dotshermes.data.model.ToolCall
 import app.dotshermes.data.model.ToolState
+import app.dotshermes.data.model.UsageHour
+import app.dotshermes.data.model.UsageWindow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -84,6 +86,26 @@ class MockChatRepository(
             browserOpen = false,
         ),
     ).asStateFlow()
+
+    private val _usage = MutableStateFlow<UsageWindow?>(null)
+    override val usage: StateFlow<UsageWindow?> = _usage.asStateFlow()
+
+    /**
+     * Démo : une activité plausible et stable (chaque heure tire toujours le même hasard), surtout en
+     * journée et plus calme le week-end, pour que la carte « Consommation » ait de quoi montrer.
+     */
+    override fun requestUsage(from: Instant, to: Instant) {
+        val last = minOf(to, clock()).epochSecond / 3600
+        val hours = (from.epochSecond / 3600..last).mapNotNull { hour ->
+            val random = Random(hour * 7919)
+            val weekend = Math.floorMod(hour / 24 + 3, 7) >= 5 // le jour 0 de l'époque Unix est un jeudi
+            val daytime = Math.floorMod(hour, 24) in 6..21
+            val chance = (if (daytime) 0.32 else 0.04) * (if (weekend) 0.4 else 1.0)
+            if (random.nextDouble() >= chance) return@mapNotNull null
+            UsageHour(hour, tokens = random.nextLong(1_500, 48_000), messages = random.nextInt(1, 7))
+        }
+        _usage.value = UsageWindow(from, to, hours)
+    }
 
     /** Message utilisateur en cours de traitement : rattache outils et réponses au bon tour. */
     private var currentTurn: String? = null

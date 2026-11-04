@@ -63,6 +63,7 @@ fun HermesApp(
     val playback by viewModel.playback.collectAsStateWithLifecycle()
     val screen by viewModel.screen.collectAsStateWithLifecycle()
     val snapshot by viewModel.activitySnapshot.collectAsStateWithLifecycle()
+    val usage by viewModel.usage.collectAsStateWithLifecycle()
     val turns by viewModel.turns.collectAsStateWithLifecycle()
     val liveTools by viewModel.liveTools.collectAsStateWithLifecycle()
     val browsing by viewModel.browsing.collectAsStateWithLifecycle()
@@ -171,6 +172,8 @@ fun HermesApp(
                 liveTools = liveTools,
                 turns = turns,
                 screen = screen,
+                usage = usage,
+                onUsage = viewModel::requestUsage,
                 onRefresh = viewModel::refreshActivity,
                 onCron = viewModel::cronAction,
                 onStop = viewModel::stopTurn,

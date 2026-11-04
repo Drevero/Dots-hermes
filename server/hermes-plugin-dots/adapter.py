@@ -68,6 +68,10 @@ ROOM_MAX_ROUNDS = 3
 ROOM_MAX_SPEAKERS = 4
 ROOM_TURN_TIMEOUT_S = 600
 ROOM_CONTEXT_EVENTS = 40  # at most this many recent events of the room are replayed to a speaker
+# Usage heatmap: how often the token totals of Hermes' sessions are sampled, and the widest window
+# the app may ask for at once (a month and a few days of margin for its time zone).
+USAGE_SAMPLE_S = 300
+USAGE_MAX_WINDOW_MS = 40 * 24 * 3600 * 1000
 _MEDIA_MESSAGE_TYPES = {"image": MessageType.PHOTO, "video": MessageType.VIDEO, "audio": MessageType.AUDIO,
                         "document": MessageType.DOCUMENT}
 VOICE_TYPES = {"audio/mp4": ".m4a", "audio/aac": ".aac", "audio/ogg": ".ogg", "audio/webm": ".webm"}
@@ -255,6 +259,101 @@ class _History:
     def delete_chat(self, chat: str) -> None:
         self._db.execute("DELETE FROM events WHERE chat = ?", (chat,))
 
+    def messages_per_hour(self, start_ms: int, end_ms: int) -> dict[int, int]:
+        """Messages (the owner's and the dots') per UTC hour since the epoch, every chat included."""
+        rows = self._db.execute(
+            "SELECT CAST(json_extract(data, '$.ts') / 3600000 AS INTEGER), COUNT(*) FROM events"
+            " WHERE json_extract(data, '$.type') = 'message' AND json_extract(data, '$.ts') >= ?"
+            " AND json_extract(data, '$.ts') < ? GROUP BY 1", (start_ms, end_ms)).fetchall()
+        return {int(hour): int(count) for hour, count in rows}
+
+
+class _Usage:
+    """Tokens spent by the agent per UTC hour, every Hermes session included (scheduled tasks too).
+
+    Hermes' ``state.db`` only keeps a running total per session, so this ledger samples those totals
+    and books what each one grew by since the last look into the current hour. A session it has never
+    seen (the whole past, on the first run) is spread over the hours of its own messages: a fair
+    estimate, exact enough for a heatmap, and from then on every sample is an exact delta."""
+
+    def __init__(self, path: Path, state_db: Path):
+        import sqlite3
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._state_db = state_db
+        # Sampled from a worker thread (asyncio.to_thread), read from the event loop: one lock for both.
+        self._lock = threading.Lock()
+        self._db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("CREATE TABLE IF NOT EXISTS usage_hours (hour INTEGER PRIMARY KEY, tokens INTEGER NOT NULL)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS usage_seen (session TEXT PRIMARY KEY, total INTEGER NOT NULL)")
+
+    def sample(self, now: Optional[float] = None) -> None:
+        import sqlite3
+        if not self._state_db.exists():
+            return
+        hour = int((now if now is not None else time.time()) // 3600)
+        state = sqlite3.connect(f"file:{self._state_db.as_posix()}?mode=ro", uri=True)
+        try:
+            # Totals read under the lock: two overlapping samples (the loop, an app request) must not
+            # compare an older read with a newer mark, which would book the same growth twice.
+            with self._lock:
+                totals = state.execute(
+                    "SELECT id, COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) FROM sessions").fetchall()
+                seen = dict(self._db.execute("SELECT session, total FROM usage_seen").fetchall())
+                booked: dict[int, int] = {}
+                changed: list[tuple[str, int]] = []
+                for session, total in totals:
+                    total = int(total or 0)
+                    before = seen.get(session)
+                    if before == total:
+                        continue
+                    changed.append((session, total))
+                    if before is None:
+                        self._spread(state, session, total, hour, booked)
+                    elif total > before:  # a total that shrinks (session rewound) just resets the mark
+                        booked[hour] = booked.get(hour, 0) + total - before
+                if not changed:
+                    return
+                # One transaction: the hours booked and the new marks land together, or not at all
+                # (a half-written sample would book the same growth twice on the next one).
+                self._db.execute("BEGIN")
+                try:
+                    self._db.executemany(
+                        "INSERT INTO usage_hours (hour, tokens) VALUES (?, ?)"
+                        " ON CONFLICT(hour) DO UPDATE SET tokens = tokens + excluded.tokens", list(booked.items()))
+                    self._db.executemany(
+                        "INSERT INTO usage_seen (session, total) VALUES (?, ?)"
+                        " ON CONFLICT(session) DO UPDATE SET total = excluded.total", changed)
+                    self._db.execute("COMMIT")
+                except Exception:
+                    self._db.execute("ROLLBACK")
+                    raise
+        finally:
+            state.close()
+
+    @staticmethod
+    def _spread(state: Any, session: str, total: int, hour: int, booked: dict[int, int]) -> None:
+        """Book a session first seen with ``total`` tokens over the hours its messages were written."""
+        if total <= 0:
+            return
+        hours = state.execute("SELECT CAST(timestamp / 3600 AS INTEGER), COUNT(*) FROM messages"
+                              " WHERE session_id = ? GROUP BY 1 ORDER BY 1", (session,)).fetchall()
+        count = sum(n for _, n in hours)
+        if not count:
+            booked[hour] = booked.get(hour, 0) + total
+            return
+        left = total
+        for i, (h, n) in enumerate(hours):
+            share = left if i == len(hours) - 1 else total * n // count  # the rounding rest goes last
+            booked[int(h)] = booked.get(int(h), 0) + share
+            left -= share
+
+    def tokens_per_hour(self, start_ms: int, end_ms: int) -> dict[int, int]:
+        with self._lock:
+            rows = self._db.execute("SELECT hour, tokens FROM usage_hours WHERE hour >= ? AND hour < ?",
+                                    (start_ms // 3_600_000, -(-end_ms // 3_600_000))).fetchall()
+        return {int(hour): int(tokens) for hour, tokens in rows}
+
 
 class _Dots:
     """Sub-dots of the owner: ``temporary`` (one mission, meant to be closed) or ``permanent``
@@ -410,6 +509,8 @@ class DotsAdapter(BasePlatformAdapter):
         self._history = _History(get_hermes_home() / "platforms" / "dots" / "history.db")
         self._dots = _Dots(get_hermes_home() / "platforms" / "dots" / "dots.json")
         self._history.route = self._outward
+        self._usage = _Usage(get_hermes_home() / "platforms" / "dots" / "usage.db", get_hermes_home() / "state.db")
+        self._usage_task: Optional[asyncio.Task] = None
         # Group rooms: host chat -> running debate; synthetic message id -> its end of processing;
         # speaker session -> last history seq it has read.
         self._rooms: dict[str, asyncio.Task] = {}
@@ -473,6 +574,7 @@ class DotsAdapter(BasePlatformAdapter):
         self._mark_connected()
         self._wire_plugin_handlers(None)
         _set_live_adapter(self)
+        self._usage_task = asyncio.create_task(self._usage_loop())
         logger.info("[%s] Listening on %s:%d%s (push %s)", self.name, self._host, self._port, WS_PATH,
                     "on" if self._push_sender.enabled else "off")
         return True
@@ -481,6 +583,9 @@ class DotsAdapter(BasePlatformAdapter):
         self._running = False
         _set_live_adapter(None)
         self._mark_disconnected()
+        if self._usage_task is not None:
+            self._usage_task.cancel()
+            self._usage_task = None
         for ws in list(self._clients):
             if not ws.closed:
                 await ws.close()
@@ -603,6 +708,8 @@ class DotsAdapter(BasePlatformAdapter):
             self._finish_takeover(str(frame.get("id") or ""), str(frame.get("note") or ""))
         elif kind == "activity_get":
             await self._push(await self._activity_snapshot(), ws)
+        elif kind == "usage_get":
+            await self._push(await self._usage_frame(frame), ws)
         elif kind == "cron_action":
             await self._cron_action(str(frame.get("id") or ""), str(frame.get("action") or ""))
             await self._push(await self._activity_snapshot(), ws)
@@ -1194,6 +1301,36 @@ class DotsAdapter(BasePlatformAdapter):
             } for j in jobs]
         return {"type": "activity_snapshot", "crons": await asyncio.to_thread(crons), "turn": self._turns.get(OWNER),
                 "state": self._activity_of(OWNER), "turns": self._turns, "browser": self._browser_task is not None}
+
+    async def _usage_loop(self) -> None:
+        """Samples the token totals every few minutes, so that each hour gets what was spent in it."""
+        while True:
+            try:
+                await asyncio.to_thread(self._usage.sample)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("[dots] usage sampling failed", exc_info=True)
+            await asyncio.sleep(USAGE_SAMPLE_S)
+
+    async def _usage_frame(self, frame: dict[str, Any]) -> dict[str, Any]:
+        """Tokens and messages per UTC hour in [from, to): the app sums them into days of its own time zone."""
+        now_ms = _now_ms()
+        try:
+            end = min(int(frame.get("to") or now_ms), now_ms + 3_600_000)
+            start = max(int(frame.get("from") or 0), end - USAGE_MAX_WINDOW_MS)
+        except (TypeError, ValueError):
+            end, start = now_ms, now_ms - USAGE_MAX_WINDOW_MS
+        if end > now_ms - USAGE_SAMPLE_S * 1000:  # the window reaches today: count what was spent since the last sample
+            try:
+                await asyncio.to_thread(self._usage.sample)
+            except Exception:
+                logger.warning("[dots] usage sampling failed", exc_info=True)
+        tokens = await asyncio.to_thread(self._usage.tokens_per_hour, start, end)
+        messages = self._history.messages_per_hour(start, end)
+        hours = sorted(set(tokens) | set(messages))
+        return {"type": "usage", "from": start, "to": end,
+                "hours": [[h, tokens.get(h, 0), messages.get(h, 0)] for h in hours]}
 
     async def _cron_action(self, job_id: str, action: str) -> None:
         from cron import jobs

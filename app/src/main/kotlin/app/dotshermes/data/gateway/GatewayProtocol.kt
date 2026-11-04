@@ -3,6 +3,8 @@ package app.dotshermes.data.gateway
 import app.dotshermes.data.model.ActivitySnapshot
 import app.dotshermes.data.model.AgentActivity
 import app.dotshermes.data.model.CronJob
+import app.dotshermes.data.model.UsageWindow
+import app.dotshermes.data.model.UsageHour
 import app.dotshermes.data.model.ScreenInput
 import app.dotshermes.data.model.DotKind
 import app.dotshermes.data.model.MAIN_CHAT
@@ -58,6 +60,22 @@ internal object GatewayProtocol {
     }.toString()
 
     fun activityGet(): String = JSONObject().put("type", "activity_get").toString()
+
+    fun usageGet(from: Instant, to: Instant): String =
+        JSONObject().put("type", "usage_get").put("from", from.toEpochMilli()).put("to", to.toEpochMilli()).toString()
+
+    /** Trame `usage` : `hours` = [[heure UTC depuis l'époque, tokens, messages], …]. */
+    fun toUsage(frame: JSONObject): UsageWindow {
+        val hours = frame.optJSONArray("hours")
+        return UsageWindow(
+            from = Instant.ofEpochMilli(frame.optLong("from")),
+            to = Instant.ofEpochMilli(frame.optLong("to")),
+            hours = if (hours == null) emptyList() else List(hours.length()) { i ->
+                val h = hours.getJSONArray(i)
+                UsageHour(hour = h.optLong(0), tokens = h.optLong(1), messages = h.optInt(2))
+            },
+        )
+    }
 
     fun cronAction(id: String, action: String): String =
         JSONObject().put("type", "cron_action").put("id", id).put("action", action).toString()

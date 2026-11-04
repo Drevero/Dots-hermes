@@ -196,6 +196,30 @@
     <string name="badge_paused">PAUSE</string>
 
     <!-- Activité -->
+    <string name="activity_usage">Consommation</string>
+    <string name="usage_tokens">Tokens</string>
+    <string name="usage_messages">Messages</string>
+    <string name="usage_previous_month">Mois précédent</string>
+    <string name="usage_next_month">Mois suivant</string>
+    <string name="usage_month_total">Total du mois</string>
+    <string name="usage_less">Moins</string>
+    <string name="usage_more">Plus</string>
+    <string name="usage_unavailable">Consommation indisponible : mettez à jour le plugin Dots de votre gateway.</string>
+    <plurals name="usage_tokens_count">
+        <item quantity="one">%s token</item>
+        <item quantity="many">%s tokens</item>
+        <item quantity="other">%s tokens</item>
+    </plurals>
+    <plurals name="usage_messages_count">
+        <item quantity="one">%d message</item>
+        <item quantity="many">%d messages</item>
+        <item quantity="other">%d messages</item>
+    </plurals>
+    <plurals name="usage_active_days">
+        <item quantity="one">%d jour actif</item>
+        <item quantity="many">%d jours actifs</item>
+        <item quantity="other">%d jours actifs</item>
+    </plurals>
     <string name="activity_title">Activité</string>
     <string name="activity_now">En ce moment</string>
     <string name="activity_browser">Navigateur</string>

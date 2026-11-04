@@ -12,13 +12,16 @@ import app.dotshermes.data.model.ChatMessage
 import app.dotshermes.data.model.ConnectionState
 import app.dotshermes.data.model.GatewayConfig
 import app.dotshermes.data.model.ToolCall
+import app.dotshermes.data.model.UsageWindow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.time.Instant
 
 private val NoRoom: StateFlow<List<String>> = MutableStateFlow(emptyList<String>()).asStateFlow()
 private val NoSpeaker: StateFlow<String?> = MutableStateFlow<String?>(null).asStateFlow()
+private val NoUsage: StateFlow<UsageWindow?> = MutableStateFlow<UsageWindow?>(null).asStateFlow()
 
 /**
  * Seul point de contact entre l'interface et l'agent Hermes.
@@ -60,6 +63,12 @@ interface ChatRepository {
 
     /** Invite ces sous-dots dans le salon de la conversation affichée (liste vide : salon fermé). */
     fun setRoom(dots: List<String>) {}
+
+    /** Dernière fenêtre de consommation reçue (carte « Consommation » de la vue Activité) ; null : rien encore. */
+    val usage: StateFlow<UsageWindow?> get() = NoUsage
+
+    /** Demande la consommation heure par heure entre [from] et [to] ; la réponse arrive dans [usage]. */
+    fun requestUsage(from: Instant, to: Instant) {}
 
     suspend fun connect(config: GatewayConfig)
     fun disconnect()

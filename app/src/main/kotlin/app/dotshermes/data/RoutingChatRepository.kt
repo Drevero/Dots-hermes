@@ -12,6 +12,7 @@ import app.dotshermes.data.model.ChatMessage
 import app.dotshermes.data.model.ConnectionState
 import app.dotshermes.data.model.GatewayConfig
 import app.dotshermes.data.model.ToolCall
+import app.dotshermes.data.model.UsageWindow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.io.File
+import java.time.Instant
 
 /** Aiguille vers le vrai gateway ou vers l'agent simulé selon l'adresse saisie (« demo »). */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,6 +50,7 @@ class RoutingChatRepository(
     override val unread: StateFlow<Map<String, Int>> = follow(scope) { it.unread }
     override val room: StateFlow<List<String>> = follow(scope) { it.room }
     override val speaker: StateFlow<String?> = follow(scope) { it.speaker }
+    override val usage: StateFlow<UsageWindow?> = follow(scope) { it.usage }
 
     override suspend fun connect(config: GatewayConfig) {
         val target = if (config.isDemo) demo else gateway
@@ -70,6 +73,7 @@ class RoutingChatRepository(
     override fun loadOlder() = active.value.loadOlder()
     override fun selectChat(chat: String) = active.value.selectChat(chat)
     override fun setRoom(dots: List<String>) = active.value.setRoom(dots)
+    override fun requestUsage(from: Instant, to: Instant) = active.value.requestUsage(from, to)
     override fun createDot(draft: SubDotDraft) = active.value.createDot(draft)
     override fun updateDot(id: String, draft: SubDotDraft) = active.value.updateDot(id, draft)
     override fun deleteDot(id: String) = active.value.deleteDot(id)

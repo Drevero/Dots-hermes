@@ -199,6 +199,27 @@
     <string name="badge_paused">PAUSED</string>
 
     <!-- Activité -->
+    <string name="activity_usage">Usage</string>
+    <string name="usage_tokens">Tokens</string>
+    <string name="usage_messages">Messages</string>
+    <string name="usage_previous_month">Previous month</string>
+    <string name="usage_next_month">Next month</string>
+    <string name="usage_month_total">Month total</string>
+    <string name="usage_less">Less</string>
+    <string name="usage_more">More</string>
+    <string name="usage_unavailable">Usage isn\'t available yet: update the Dots plugin on your gateway.</string>
+    <plurals name="usage_tokens_count">
+        <item quantity="one">%s token</item>
+        <item quantity="other">%s tokens</item>
+    </plurals>
+    <plurals name="usage_messages_count">
+        <item quantity="one">%d message</item>
+        <item quantity="other">%d messages</item>
+    </plurals>
+    <plurals name="usage_active_days">
+        <item quantity="one">%d active day</item>
+        <item quantity="other">%d active days</item>
+    </plurals>
     <string name="activity_title">Activity</string>
     <string name="activity_now">Right now</string>
     <string name="activity_browser">Browser</string>

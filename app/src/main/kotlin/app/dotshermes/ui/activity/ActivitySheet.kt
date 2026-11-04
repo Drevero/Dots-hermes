@@ -45,6 +45,7 @@ import app.dotshermes.data.model.CronJob
 import app.dotshermes.data.model.ScreenState
 import app.dotshermes.data.model.ToolCall
 import app.dotshermes.data.model.ToolState
+import app.dotshermes.data.model.UsageWindow
 import app.dotshermes.ui.DotAppearance
 import app.dotshermes.ui.chat.formatDuration
 import app.dotshermes.ui.chat.icon
@@ -67,7 +68,7 @@ import app.dotshermes.ui.formatDate
 import app.dotshermes.ui.formatTime
 
 /**
- * Tout ce que fait l'agent, au même endroit : le tour en cours (et de quoi l'arrêter), son
+ * Tout ce que fait l'agent, au même endroit : sa consommation mois par mois, le tour en cours (et de quoi l'arrêter), son
  * navigateur, ses tâches planifiées (pause, reprise, lancement) et les derniers échanges.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,6 +81,8 @@ fun ActivitySheet(
     liveTools: List<ToolCall>,
     turns: List<TurnSummary>,
     screen: ScreenState,
+    usage: UsageWindow?,
+    onUsage: (from: Instant, to: Instant) -> Unit,
     onRefresh: () -> Unit,
     onCron: (String, CronAction) -> Unit,
     onStop: () -> Unit,
@@ -103,6 +106,9 @@ fun ActivitySheet(
     ) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 28.dp)) {
             Text(stringResource(R.string.activity_title), style = MaterialTheme.typography.headlineSmall, color = Ink.Primary, modifier = Modifier.padding(start = 4.dp))
+
+            SectionLabel(stringResource(R.string.activity_usage))
+            GroupedCard { UsageCard(usage, onUsage) }
 
             SectionLabel(stringResource(R.string.activity_now))
             GroupedCard { NowCard(agentName, appearance, activity, busy, liveTools, onStop) }

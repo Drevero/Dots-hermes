@@ -53,6 +53,7 @@ Toutes les trames sont du JSON avec un champ `type`. Les identifiants de message
 | `screen_input` | `action` (`click`, `scroll`, `type`, `key`), `x`, `y` (fractions de l'image), `dy`, `text`, `key` | Geste rejoué sur la page de l'agent via CDP (`Input.*`) |
 | `takeover_done` | `id`, `note` | Rend la main à l'agent (débloque `browser_request_takeover`) |
 | `activity_get` | — | Demande la vue Activité |
+| `usage_get` | `from`, `to` (ms epoch) | Demande la consommation heure par heure sur cette fenêtre (40 jours au plus) |
 | `cron_action` | `id`, `action` (`pause`, `resume`, `run`) | Pilote une tâche planifiée, renvoie la vue Activité |
 | `stop` | — | Interrompt le tour en cours (`/stop`, non écrit dans la conversation) |
 | `presence` | `foreground` | L'app passe au premier plan / en arrière-plan (pilote les push) |
@@ -79,6 +80,7 @@ Toutes les trames sont du JSON avec un champ `type`. Les identifiants de message
 | `screen_frame` | `data` (JPEG base64), `url`, `title`, `width`, `height`, `live`, `ts` | Image de l'écran : une vignette après chaque outil `browser_*`, ~3 images/s tant qu'une app regarde |
 | `screen_idle` | — | Aucun navigateur ouvert pendant le flux |
 | `activity_snapshot` | `crons[]`, `turn`, `state`, `browser` | Réponse à `activity_get` / `cron_action` |
+| `usage` | `from`, `to`, `hours[]` = `[heure UTC depuis l'époque, tokens, messages]` | Réponse à `usage_get` ; seules les heures actives y figurent |
 | `tool` | `id` (tool_call_id), `turn`, `name`, `kind`, `label`, `detail`, `state` (`running`), `ts` | Hook plugin `pre_tool_call`, filtré sur `HERMES_SESSION_PLATFORM == "dots"` |
 | `tool_update` | `id`, `state` (`done` / `error`), `duration_ms` | Hook `post_tool_call` ; l'historique garde l'état final dans l'événement `tool` |
 | `error` | `code`, `message` | Trame invalide, jeton refusé… |
@@ -139,6 +141,14 @@ Le plugin passe par l'accès CDP que Hermes réserve aux plugins (`SUPERVISOR_RE
 - Tâches planifiées lues et pilotées avec l'API cron de Hermes (`list_jobs`, `pause_job`, `resume_job`, `trigger_job`).
 - Tour en cours, ses outils et le bouton « Arrêter » (`stop`).
 - Derniers échanges, reconstitués par l'app à partir des messages et des outils (`turn`).
+- Consommation, en tête : un mois en cases façon GitHub (`usage_get`), plus foncées les jours les plus actifs.
+  - **Tokens** : tout ce que dépense l'agent, toutes sessions Hermes confondues (tâches planifiées comprises).
+    `state.db` ne garde qu'un total par session : le plugin relève ces totaux toutes les 5 minutes (et à chaque
+    `usage_get` qui touche aujourd'hui) et inscrit leur hausse dans l'heure courante (`platforms/dots/usage.db`).
+    Une session jamais vue — tout le passé, au premier lancement — est répartie sur les heures de ses messages :
+    une estimation pour l'historique, puis des relevés exacts.
+  - **Messages** : ceux de l'historique de l'app (les tiens et ceux des dots), toutes conversations confondues.
+  - Le gateway compte par heure UTC ; l'app regroupe par jour dans le fuseau du téléphone.
 
 ## Prise en main du navigateur
 

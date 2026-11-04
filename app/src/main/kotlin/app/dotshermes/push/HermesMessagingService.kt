@@ -27,12 +27,15 @@ class HermesMessagingService : FirebaseMessagingService() {
         if (body.isBlank()) return
         val kind = message.data["kind"].orEmpty()
         val id = message.data["id"].orEmpty()
+        // L'agent qui écrit (champ `agent`, plugin 1.2+). Pas d'agent sûr (retiré de l'app, ambigu) :
+        // rien n'est affiché, plutôt qu'une réponse rapide qui partirait vers l'agent d'à côté.
+        val agent = AppContainer.agents.store.forPush(message.data["agent"])?.id ?: return
         if (kind == "approval" && id.isNotEmpty()) {
             // Le plugin envoie la commande seule ; les anciennes versions la préfixaient : on retire ce préfixe.
-            Notifications.showApproval(this, id, body.removePrefix(LEGACY_APPROVAL_PREFIX))
+            Notifications.showApproval(this, agent, id, body.removePrefix(LEGACY_APPROVAL_PREFIX))
         } else {
             Notifications.showAgentMessage(
-                this, kind = kind, body = body,
+                this, agent = agent, kind = kind, body = body,
                 chat = message.data["chat"].orEmpty().ifEmpty { MAIN_CHAT }, title = message.data["title"].orEmpty(),
             )
         }

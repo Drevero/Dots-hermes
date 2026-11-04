@@ -3,6 +3,7 @@ package app.dotshermes.push
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import app.dotshermes.data.AgentStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -12,13 +13,14 @@ class ApprovalReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val approvalId = intent.getStringExtra(EXTRA_APPROVAL_ID) ?: return
         val approved = intent.getBooleanExtra(EXTRA_APPROVED, false)
+        val agent = intent.getStringExtra(Notifications.EXTRA_AGENT) ?: AgentStore.PRIMARY_ID
         val app = context.applicationContext
-        Notifications.showApprovalPending(app, approvalId, approved)
+        Notifications.showApprovalPending(app, agent, approvalId, approved)
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val delivered = QuickReply.answerApproval(approvalId, approved)
-                Notifications.showApprovalOutcome(app, approvalId, approved, delivered)
+                val delivered = QuickReply.answerApproval(agent, approvalId, approved)
+                Notifications.showApprovalOutcome(app, agent, approvalId, approved, delivered)
             } finally {
                 pending.finish()
             }

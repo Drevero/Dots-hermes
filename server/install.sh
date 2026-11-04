@@ -13,7 +13,14 @@
 #   5. en option : transcription vocale locale (Whisper), clé Firebase pour le push, exemple Caddy ;
 #   6. redémarre le gateway et vérifie que le plugin répond.
 #
+# Plusieurs agents indépendants : un profil Hermes par agent, et une installation par profil.
+#   bash server/install.sh --profile ash --bind 127.0.0.1:8788 --domain hermes.example.com
+# Chaque profil garde son jeton, son port, son historique et ses clés ; l'app se connecte à chacun.
+#
 # Options :
+#   --profile NAME       profil Hermes à équiper ($HOME/.hermes/profiles/NAME) ; défaut : le profil principal
+#   --agent-name NAME    nom de l'agent affiché par l'app (défaut : le nom du profil, sinon « Hermes »)
+#   --service NAME       service systemd du gateway (défaut : hermes-gateway, ou hermes-gateway-NAME avec --profile)
 #   --domain NAME        domaine public du gateway : affiche l'adresse wss:// et un Caddyfile prêt à l'emploi
 #   --bind HOST:PORT     adresse d'écoute locale du plugin (défaut : 127.0.0.1:8787)
 #   --voice [MODEL]      installe la transcription locale (faster-whisper) ; modèle : tiny|base|small (défaut : small)
@@ -33,6 +40,9 @@ PLUGIN_FILES=(plugin.yaml __init__.py adapter.py)
 TESTED_HERMES="0.22"
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+PROFILE=""
+AGENT_NAME=""
+SERVICE=""
 DOMAIN=""
 BIND="127.0.0.1:8787"
 BIND_GIVEN=0
@@ -65,6 +75,9 @@ usage() { sed -n '2,/^set -euo/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --profile) PROFILE="${2:?--profile attend un nom de profil}"; shift 2 ;;
+        --agent-name) AGENT_NAME="${2:?--agent-name attend un nom}"; shift 2 ;;
+        --service) SERVICE="${2:?--service attend un nom de service}"; shift 2 ;;
         --domain) DOMAIN="${2:?--domain attend un nom de domaine}"; shift 2 ;;
         --bind) BIND="${2:?--bind attend HOST:PORT}"; BIND_GIVEN=1; shift 2 ;;
         --voice)
@@ -79,6 +92,18 @@ while [ $# -gt 0 ]; do
         *) die "Option inconnue : $1 (voir --help)" ;;
     esac
 done
+
+# -- Profil ------------------------------------------------------------------------------------------
+
+if [ -n "$PROFILE" ]; then
+    [[ "$PROFILE" =~ ^[A-Za-z0-9_-]+$ ]] || die "--profile : lettres, chiffres, - et _ seulement (reçu : $PROFILE)."
+    HERMES_HOME="$HOME/.hermes/profiles/$PROFILE"
+    SERVICE="${SERVICE:-hermes-gateway-$PROFILE}"
+    WS_ROUTE="/dots/$PROFILE/ws"
+else
+    SERVICE="${SERVICE:-hermes-gateway}"
+    WS_ROUTE="/dots/ws"
+fi
 
 # -- Prérequis ---------------------------------------------------------------------------------------
 
@@ -172,6 +197,10 @@ else
 fi
 # Une adresse déjà configurée est gardée, sauf si --bind en demande une autre.
 CURRENT_BIND="$(env_get DOTS_BIND)"
+# Chaque profil écoute sur son propre port : le 8787 par défaut est celui du profil principal.
+if [ -n "$PROFILE" ] && [ "$BIND_GIVEN" = 0 ] && [ -z "$CURRENT_BIND" ]; then
+    die "Profil « $PROFILE » : choisis un port libre avec --bind (ex. 127.0.0.1:8788), différent de celui des autres agents."
+fi
 if [ "$BIND_GIVEN" = 1 ] || [ -z "$CURRENT_BIND" ]; then
     [ "$CURRENT_BIND" = "$BIND" ] || env_set DOTS_BIND "$BIND"
 else
@@ -179,6 +208,7 @@ else
 fi
 [ -n "$(env_get DOTS_ALLOWED_USERS)" ] || env_set DOTS_ALLOWED_USERS owner
 [ -n "$(env_get DOTS_HOME_CHANNEL)" ] || env_set DOTS_HOME_CHANNEL owner
+[ -z "$AGENT_NAME" ] || env_set DOTS_AGENT_NAME "$AGENT_NAME"
 run chmod 600 "$ENV_FILE"
 ok "écoute sur $BIND, propriétaire unique « owner »"
 
@@ -211,11 +241,11 @@ fi
 HEALTH_URL="http://$BIND/dots/health"
 if [ "$RESTART" = 1 ]; then
     step "Redémarrage du gateway"
-    if systemctl --user cat hermes-gateway >/dev/null 2>&1; then
-        run systemctl --user restart hermes-gateway
-        ok "hermes-gateway redémarré (systemd)"
+    if systemctl --user cat "$SERVICE" >/dev/null 2>&1; then
+        run systemctl --user restart "$SERVICE"
+        ok "$SERVICE redémarré (systemd)"
     else
-        warn "Service systemd « hermes-gateway » introuvable : redémarre ton gateway Hermes toi-même."
+        warn "Service systemd « $SERVICE » introuvable : redémarre le gateway de ce profil toi-même (ou indique-le avec --service)."
         RESTART=0
     fi
 fi
@@ -241,7 +271,8 @@ if [ -n "$DOMAIN" ]; then
   Reverse proxy — Caddyfile (TLS automatique, seul le WebSocket est exposé) :
 
     $DOMAIN {
-    	handle /dots/ws {
+    	handle $WS_ROUTE {
+    		rewrite * /dots/ws
     		reverse_proxy $BIND
     	}
     	handle {
@@ -249,15 +280,17 @@ if [ -n "$DOMAIN" ]; then
     	}
     }
 
-  Dans l'app :
-    Gateway  ${BOLD}wss://$DOMAIN/dots/ws${RESET}
+  Plusieurs agents sur le même domaine : un bloc « handle » par agent, chacun sa route et son port.
+
+  Dans l'app (« Ajouter un agent » à partir du deuxième) :
+    Gateway  ${BOLD}wss://$DOMAIN$WS_ROUTE${RESET}
 EOF
 else
     cat <<EOF
 
   Expose le plugin en HTTPS avec un reverse proxy (voir le README) ; relance avec --domain pour
   obtenir un Caddyfile prêt à l'emploi. Dans l'app :
-    Gateway  ${BOLD}wss://<ton-domaine>/dots/ws${RESET}
+    Gateway  ${BOLD}wss://<ton-domaine>$WS_ROUTE${RESET}
 EOF
 fi
 if [ "$DRY_RUN" = 1 ]; then

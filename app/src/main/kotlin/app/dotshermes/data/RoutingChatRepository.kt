@@ -18,23 +18,32 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.io.File
 import java.time.Instant
 
-/** Aiguille vers le vrai gateway ou vers l'agent simulé selon l'adresse saisie (« demo »). */
+/**
+ * Aiguille l'interface vers l'agent affiché (sa connexion, voir [AgentRegistry]) ou vers l'agent
+ * simulé quand l'adresse saisie est « demo ». Changer d'agent change tous les flux d'un coup ;
+ * les autres agents restent connectés en arrière-plan, avec leurs conversations intactes.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoutingChatRepository(
     scope: CoroutineScope,
-    private val gateway: ChatRepository,
+    private val agents: AgentRegistry,
     private val demo: ChatRepository,
 ) : ChatRepository {
 
-    private val active = MutableStateFlow(gateway)
+    private val demoOn = MutableStateFlow(false)
+
+    private val active: StateFlow<ChatRepository> =
+        combine(demoOn, agents.activeRepo) { onDemo, gateway -> if (onDemo) demo else gateway }
+            .stateIn(scope, SharingStarted.Eagerly, agents.activeRepo.value)
 
     private fun <T> follow(scope: CoroutineScope, pick: (ChatRepository) -> StateFlow<T>): StateFlow<T> =
-        active.flatMapLatest(pick).stateIn(scope, SharingStarted.Eagerly, pick(gateway).value)
+        active.flatMapLatest(pick).stateIn(scope, SharingStarted.Eagerly, pick(active.value).value)
 
     override val profile: StateFlow<AgentProfile> = follow(scope) { it.profile }
     override val connection: StateFlow<ConnectionState> = follow(scope) { it.connection }
@@ -52,11 +61,23 @@ class RoutingChatRepository(
     override val speaker: StateFlow<String?> = follow(scope) { it.speaker }
     override val usage: StateFlow<UsageWindow?> = follow(scope) { it.usage }
 
+    /** Démo seulement : les vrais agents s'appairent par [AgentRegistry] (un par gateway). */
     override suspend fun connect(config: GatewayConfig) {
-        val target = if (config.isDemo) demo else gateway
-        if (target !== active.value) active.value.disconnect()
-        active.value = target
-        target.connect(config)
+        if (config.isDemo) {
+            demoOn.value = true
+            demo.connect(config)
+        } else {
+            leaveDemo()
+            agents.activeRepo.value.connect(config)
+        }
+    }
+
+    val isDemo: Boolean get() = demoOn.value
+
+    fun leaveDemo() {
+        if (!demoOn.value) return
+        demo.disconnect()
+        demoOn.value = false
     }
 
     override fun disconnect() = active.value.disconnect()
@@ -81,7 +102,7 @@ class RoutingChatRepository(
     override fun stopTurn() = active.value.stopTurn()
     override fun finishTakeover(messageId: String) = active.value.finishTakeover(messageId)
 
-    // Présence et jeton push concernent toujours le vrai gateway, même pendant une démo.
-    override fun setForeground(foreground: Boolean) = gateway.setForeground(foreground)
-    override fun setPushToken(token: String) = gateway.setPushToken(token)
+    // Présence et jeton push concernent tous les vrais agents, même pendant une démo.
+    override fun setForeground(foreground: Boolean) = agents.setForeground(foreground)
+    override fun setPushToken(token: String) = agents.setPushToken(token)
 }

@@ -37,6 +37,7 @@ import app.dotshermes.ui.chat.AttachmentControls
 import app.dotshermes.ui.activity.ActivitySheet
 import app.dotshermes.ui.screen.ScreenViewer
 import app.dotshermes.ui.connect.ConnectScreen
+import app.dotshermes.ui.agents.AgentMenu
 import app.dotshermes.ui.theme.DotsTheme
 import androidx.compose.ui.res.stringResource
 import app.dotshermes.R
@@ -52,7 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HermesApp(
     viewModel: HermesViewModel = viewModel {
-        HermesViewModel(AppContainer.chatRepository, AppContainer.appearance, AppContainer.gatewayConfig, AppContainer.voiceRecorder, AppContainer.voicePlayer, AppContainer.attachments)
+        HermesViewModel(AppContainer.chatRepository, AppContainer.agents, AppContainer.voiceRecorder, AppContainer.voicePlayer, AppContainer.attachments)
     },
 ) {
     val connection by viewModel.connection.collectAsStateWithLifecycle()
@@ -68,6 +69,7 @@ fun HermesApp(
     val liveTools by viewModel.liveTools.collectAsStateWithLifecycle()
     val browsing by viewModel.browsing.collectAsStateWithLifecycle()
     var agentSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var agentMenuOpen by rememberSaveable { mutableStateOf(false) }
     var activityOpen by rememberSaveable { mutableStateOf(false) }
     var screenOpen by rememberSaveable { mutableStateOf(false) }
     var screenTakeover by rememberSaveable { mutableStateOf(false) }
@@ -76,6 +78,11 @@ fun HermesApp(
     val activeChat by viewModel.activeChat.collectAsStateWithLifecycle()
     val chatActivity by viewModel.chatActivity.collectAsStateWithLifecycle()
     val unread by viewModel.unread.collectAsStateWithLifecycle()
+    val agentList by viewModel.agentList.collectAsStateWithLifecycle()
+    val activeAgent by viewModel.activeAgent.collectAsStateWithLifecycle()
+    val addingAgent by viewModel.addingAgent.collectAsStateWithLifecycle()
+    val otherAgentsUnread by viewModel.otherAgentsUnread.collectAsStateWithLifecycle()
+    val demo = (connection as? ConnectionState.Connected)?.demo == true
     var creatingDot by rememberSaveable { mutableStateOf(false) }
     // Apparence saisie dans l'éditeur d'un sous-dot (ou du nouveau) : le carrousel l'affiche en direct.
     var editPreview by remember { mutableStateOf<DotAppearance?>(null) }
@@ -132,6 +139,8 @@ fun HermesApp(
                     browsing = browsing,
                     onLoadOlder = viewModel::loadOlder,
                     otherUnread = unread.filterKeys { it != activeChat }.values.sum(),
+                    onOpenAgents = if (!demo && agentList.size > 1) ({ agentMenuOpen = true }) else null,
+                    otherAgentsUnread = otherAgentsUnread,
                     heroDots = if ((connection as? ConnectionState.Connected)?.demo == true) emptyList() else heroDots(appearance, dots),
                     activeChat = activeChat,
                     onSwitchDot = viewModel::selectChat,
@@ -156,8 +165,12 @@ fun HermesApp(
                 ConnectScreen(
                     connection = connection,
                     appearance = appearance,
-                    initialUrl = viewModel.initialGatewayUrl,
+                    initialUrl = remember(activeAgent, addingAgent) { viewModel.gatewayUrlHint() },
                     onConnect = viewModel::connect,
+                    adding = addingAgent,
+                    onCancelAdd = viewModel::cancelAddAgent,
+                    otherAgents = agentList.filter { it.id != activeAgent && it.connection is ConnectionState.Connected },
+                    onSelectAgent = viewModel::selectAgent,
                 )
             }
         }
@@ -257,9 +270,28 @@ fun HermesApp(
                             agentSheetOpen = false
                             viewModel.disconnect()
                         },
+                        onAddAgent = {
+                            agentSheetOpen = false
+                            viewModel.addAgent()
+                        },
+                        multipleAgents = !demo && agentList.size > 1,
                     )
                 }
             }
+        }
+        if (agentMenuOpen) {
+            AgentMenu(
+                agents = agentList, activeId = activeAgent,
+                onSelect = { id ->
+                    agentMenuOpen = false
+                    viewModel.selectAgent(id)
+                },
+                onAdd = {
+                    agentMenuOpen = false
+                    viewModel.addAgent()
+                },
+                onDismiss = { agentMenuOpen = false },
+            )
         }
         if (updateDialog) {
             UpdateDialog(

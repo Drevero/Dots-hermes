@@ -57,6 +57,9 @@ import java.util.concurrent.TimeUnit
 private const val TAG = "GatewayChat"
 private val ReconnectBackoffMs = longArrayOf(1_000, 2_000, 5_000, 10_000, 30_000)
 
+/** L'agent servi par un gateway : identifiant stable (routage des push) et nom de son profil Hermes. */
+data class ServerAgent(val id: String, val name: String)
+
 /** Tout ce que l'app sait d'une conversation (dot principal ou sous-dot). */
 private data class ChatData(
     val messages: List<ChatMessage> = emptyList(),
@@ -96,6 +99,10 @@ class GatewayChatRepository(
     override val profile: StateFlow<AgentProfile> =
         MutableStateFlow(AgentProfile(name = "Hermes", tagline = context.getString(R.string.profile_tagline_gateway))).asStateFlow()
 
+    /** Identité annoncée par le gateway dans `welcome` (plugin 1.2+) ; null avant, ou avec un plugin plus ancien. */
+    private val _serverAgent = MutableStateFlow<ServerAgent?>(null)
+    val serverAgent: StateFlow<ServerAgent?> = _serverAgent.asStateFlow()
+
     private val _connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
 
@@ -126,6 +133,18 @@ class GatewayChatRepository(
     @Volatile private var pendingDotRef: String? = null
 
     @Volatile private var foreground = true
+
+    /** Cet agent est celui affiché (voir [setShown]). */
+    @Volatile private var shown = true
+
+    /**
+     * L'agent passe à l'écran (ou le quitte, quand on en choisit un autre). Caché, ses messages
+     * comptent comme non lus même dans sa conversation ouverte ; affiché, celle-ci redevient lue.
+     */
+    fun setShown(shown: Boolean) {
+        this.shown = shown
+        if (shown) updateChat(_activeChat.value) { it.copy(unread = 0) }
+    }
     @Volatile private var pushToken: String? = null
 
     private val _screen = MutableStateFlow(ScreenState())
@@ -511,7 +530,8 @@ class GatewayChatRepository(
                     val chat = GatewayProtocol.chatOf(frame)
                     upsert(chat, listOf(message))
                     // Un message de l'agent dans une conversation cachée : pastille sur son dot.
-                    if (chat != _activeChat.value && message.sender == Sender.Agent) updateChat(chat) { it.copy(unread = it.unread + 1) }
+                    // Agent pas affiché (un autre agent est à l'écran) : même sa conversation ouverte compte.
+                    if ((chat != _activeChat.value || !shown) && message.sender == Sender.Agent) updateChat(chat) { it.copy(unread = it.unread + 1) }
                 }
                 bumpSeq(frame)
             }
@@ -600,6 +620,7 @@ class GatewayChatRepository(
     private fun onWelcome(frame: JSONObject) {
         val current = config ?: return
         attempt = 0
+        frame.optString("agent_id").takeIf { it.isNotEmpty() }?.let { _serverAgent.value = ServerAgent(it, frame.optString("agent")) }
         val history = frame.optJSONArray("history")
         val replayed = if (history == null) emptyList() else List(history.length()) { history.getJSONObject(it) }
         onDots(GatewayProtocol.toDots(frame.optJSONArray("dots")))

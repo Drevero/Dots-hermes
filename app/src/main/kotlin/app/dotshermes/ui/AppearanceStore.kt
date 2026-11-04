@@ -23,9 +23,12 @@ data class DotAppearance(
 const val DEFAULT_AGENT_NAME = "Hermes"
 const val AGENT_NAME_MAX = 24
 
-/** Mémorisée sur l'appareil : le nom choisi sert aussi aux notifications. */
-class AppearanceStore(context: Context) {
-    private val prefs = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+/**
+ * Mémorisée sur l'appareil : le nom choisi sert aussi aux notifications. Une par agent
+ * ([prefsName]) ; celle de l'agent historique garde aussi le thème, commun à toute l'app.
+ */
+class AppearanceStore(context: Context, prefsName: String = "appearance") {
+    private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
         DotAppearance(
@@ -60,6 +63,28 @@ class AppearanceStore(context: Context) {
         val palette = DotPalettes.all.firstOrNull { it.id == species.signaturePalette } ?: _state.value.palette
         _state.update { it.copy(species = species, palette = palette) }
         prefs.edit().putString(KEY_SPECIES, species.name).putString(KEY_PALETTE, palette.id).apply()
+    }
+
+    /**
+     * Nom annoncé par le gateway (profil Hermes) : pris tant que l'utilisateur n'en a pas choisi un.
+     * Pas mémorisé : si le profil change de nom, l'app suit.
+     */
+    fun adoptServerName(name: String) {
+        val clean = name.trim().take(AGENT_NAME_MAX)
+        if (clean.isEmpty() || prefs.contains(KEY_NAME)) return
+        _state.update { it.copy(name = clean) }
+    }
+
+    /** Nouvel agent : une autre mascotte que les agents existants, pour les distinguer d'un coup d'œil. */
+    fun initialize(species: DotSpecies) {
+        if (prefs.contains(KEY_SPECIES)) return
+        setSpecies(species)
+    }
+
+    /** Agent retiré : on oublie son apparence (le thème, commun, reste). */
+    fun forget() {
+        prefs.edit().remove(KEY_NAME).remove(KEY_PALETTE).remove(KEY_ACCESSORY).remove(KEY_SPECIES).apply()
+        _state.update { DotAppearance(theme = it.theme) }
     }
 
     fun setTheme(theme: ThemeMode) {

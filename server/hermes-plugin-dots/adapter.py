@@ -3,14 +3,17 @@
 Protocol: docs/protocole-gateway.md in the app repository. The server listens on DOTS_BIND
 (127.0.0.1:8787) and is meant to sit behind a TLS reverse proxy. Env: DOTS_TOKEN (required),
 DOTS_BIND, DOTS_ALLOWED_USERS, DOTS_HOME_CHANNEL, DOTS_FCM_CREDENTIALS (service account JSON,
-default ``~/.hermes/platforms/dots/fcm-service-account.json``; push is off when it is missing).
+default ``~/.hermes/platforms/dots/fcm-service-account.json``; push is off when it is missing),
+DOTS_AGENT_ID / DOTS_AGENT_NAME (identity of this agent in a multi-agent app, see ``_agent_identity``).
 
 Identity: the bearer token is the trust boundary; every authenticated client is the single
-``owner`` user, and there is exactly one chat (``chat_id == "owner"``).
+``owner`` user, and the main chat is ``chat_id == "owner"``. One plugin serves one Hermes profile:
+several independent agents are several profiles, each with its own gateway, token and port.
 """
 
 import asyncio
 import base64
+import hashlib
 import hmac
 import json
 import logging
@@ -157,6 +160,29 @@ def _now_ms() -> int:
 
 def _token(extra: Optional[dict] = None) -> str:
     return (_extra_or_secret(extra or {}, "token", "DOTS_TOKEN") or "").strip()
+
+
+def _agent_identity(extra: Optional[dict] = None) -> tuple[str, str]:
+    """Stable id and display name of the agent this gateway serves.
+
+    The app keeps one connection per agent and uses the id to route pushes to the right one. By
+    default the id derives from the profile's home directory (stable across restarts and token
+    rotations, distinct per profile) and the name is the profile's (``~/.hermes/profiles/<name>``),
+    or "Hermes" for the default profile.
+    """
+    extra = extra or {}
+    home = get_hermes_home()
+    try:
+        home = home.resolve()
+    except OSError:
+        pass
+    agent_id = (_extra_or_secret(extra, "agent_id", "DOTS_AGENT_ID") or "").strip()
+    if not agent_id:
+        agent_id = hashlib.sha256(str(home).encode("utf-8")).hexdigest()[:16]
+    name = (_extra_or_secret(extra, "agent_name", "DOTS_AGENT_NAME") or "").strip()
+    if not name:
+        name = home.name if home.parent.name == "profiles" else "Hermes"
+    return agent_id[:64], name[:24]
 
 
 def _parse_bind(value: str) -> tuple[str, int]:
@@ -505,6 +531,7 @@ class DotsAdapter(BasePlatformAdapter):
         super().__init__(config=config, platform=Platform("dots"))
         extra = config.extra or {}
         self._token = _token(extra)
+        self._agent_id, self._agent_name = _agent_identity(extra)
         self._host, self._port = _parse_bind(_extra_or_secret(extra, "bind", "DOTS_BIND", DEFAULT_BIND))
         self._history = _History(get_hermes_home() / "platforms" / "dots" / "history.db")
         self._dots = _Dots(get_hermes_home() / "platforms" / "dots" / "dots.json")
@@ -560,7 +587,7 @@ class DotsAdapter(BasePlatformAdapter):
         app = web.Application()
         app.router.add_get(WS_PATH, self._handle_ws)
         app.router.add_post(SEND_PATH, self._handle_local_send)
-        app.router.add_get("/dots/health", lambda _req: web.json_response({"ok": True}))
+        app.router.add_get("/dots/health", lambda _req: web.json_response({"ok": True, "agent_id": self._agent_id}))
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         try:
@@ -575,8 +602,8 @@ class DotsAdapter(BasePlatformAdapter):
         self._wire_plugin_handlers(None)
         _set_live_adapter(self)
         self._usage_task = asyncio.create_task(self._usage_loop())
-        logger.info("[%s] Listening on %s:%d%s (push %s)", self.name, self._host, self._port, WS_PATH,
-                    "on" if self._push_sender.enabled else "off")
+        logger.info("[%s] Listening on %s:%d%s as agent %r (%s, push %s)", self.name, self._host, self._port, WS_PATH,
+                    self._agent_name, self._agent_id, "on" if self._push_sender.enabled else "off")
         return True
 
     async def disconnect(self) -> None:
@@ -672,7 +699,7 @@ class DotsAdapter(BasePlatformAdapter):
                 (history, has_more), reset = self._history.page(OWNER, None, INITIAL_PAGE), True
             activities, speakers = self._public_activities()
             await self._push({
-                "type": "welcome", "agent": "Hermes", "seq": self._history.seq, "activity": activities.get(OWNER, "idle"),
+                "type": "welcome", "agent": self._agent_name, "agent_id": self._agent_id, "seq": self._history.seq, "activity": activities.get(OWNER, "idle"),
                 "activities": activities, "speakers": speakers, "history": history, "reset": reset, "has_more": has_more,
                 "dots": self._dots_payload(),
             }, ws)
@@ -1468,7 +1495,9 @@ class DotsAdapter(BasePlatformAdapter):
         # (approval, question) is named, and the notification opens its room.
         room = self._room_parts(chat)
         title = "" if chat == OWNER else self._chat_name(chat)
-        data = {"kind": kind, "id": event_id, "chat": room[1] if room else chat, "title": title,
+        # ``agent``: one phone may be paired with several gateways (one per Hermes profile); the app
+        # routes the notification, its reply and its approval buttons to this one.
+        data = {"kind": kind, "id": event_id, "agent": self._agent_id, "chat": room[1] if room else chat, "title": title,
                 "body": body[:PUSH_BODY_LIMIT], "ts": str(_now_ms())}
         asyncio.ensure_future(self._push_sender.send(data))
 

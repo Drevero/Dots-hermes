@@ -258,6 +258,17 @@
     <string name="settings_color">Color</string>
     <string name="settings_accessory">Accessory</string>
     <string name="settings_disconnect">Disconnect</string>
+    <!-- Plusieurs agents Hermes (un gateway, donc un profil Hermes, par agent) -->
+    <string name="agents_title">Agents</string>
+    <string name="agents_add_row">Add an agent</string>
+    <string name="agents_add_title">New agent</string>
+    <string name="agents_add_tagline">Another Hermes agent, with its own gateway.\nIts conversations, memory and tools stay separate.</string>
+    <string name="agents_add_cancel">Cancel</string>
+    <string name="agents_switch_to">Or open another agent:</string>
+    <string name="agents_remove">Remove this agent</string>
+    <string name="agents_add_hint">For a Hermes agent whose gateway is already installed (a separate Hermes profile, with its own memory, tools and keys). To split one agent\'s work, create a sub-dot from “My dots” instead.</string>
+    <string name="agents_busy">Working…</string>
+    <string name="cd_switch_agent">Switch agent</string>
     <string name="theme_auto">Auto</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>

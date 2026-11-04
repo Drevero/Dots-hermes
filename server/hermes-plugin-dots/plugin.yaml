@@ -1,11 +1,11 @@
 name: dots-platform
 label: Dots
 kind: platform
-version: 1.1.0
+version: 1.2.0
 description: >
-  Adaptateur pour l'app Android « Hermes » (style Dots) : une conversation unique
-  avec l'agent via un WebSocket authentifié par jeton, exposé derrière un reverse
-  proxy TLS. Statuts de frappe, réactions, approbations et questions natives,
+  Adaptateur pour l'app Android « Hermes » (style Dots) : la conversation avec
+  l'agent de ce profil Hermes via un WebSocket authentifié par jeton, exposé derrière
+  un reverse proxy TLS (un plugin par profil pour plusieurs agents indépendants). Statuts de frappe, réactions, approbations et questions natives,
   historique rejoué à la reconnexion. Dépend uniquement d'aiohttp (déjà fourni par Hermes).
 author: dots-hermes
 requires_env:
@@ -21,6 +21,14 @@ optional_env:
   - name: DOTS_ALLOWED_USERS
     description: "Utilisateurs autorisés (owner)"
     prompt: "Utilisateurs autorisés"
+    password: false
+  - name: DOTS_AGENT_NAME
+    description: "Nom de l'agent affiché par l'app (défaut : nom du profil Hermes, sinon Hermes)"
+    prompt: "Nom de l'agent"
+    password: false
+  - name: DOTS_AGENT_ID
+    description: "Identifiant stable de l'agent pour l'app multi-agents (défaut : dérivé du dossier du profil)"
+    prompt: "Identifiant de l'agent"
     password: false
   - name: DOTS_HOME_CHANNEL
     description: "Cible des messages proactifs et cron (owner)"

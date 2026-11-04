@@ -86,6 +86,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -164,6 +165,10 @@ fun ChatScreen(
     attachments: AttachmentControls? = null,
     /** Salon de groupe : invite ces sous-dots dans la conversation affichée (liste vide : salon fermé). */
     onSetRoom: (List<String>) -> Unit = {},
+    /** Plusieurs agents Hermes : le nom de l'en-tête ouvre leur menu ; null avec un seul agent (en-tête d'avant). */
+    onOpenAgents: (() -> Unit)? = null,
+    /** Messages non lus chez les autres agents : pastille à côté du nom. */
+    otherAgentsUnread: Int = 0,
 ) {
     val palette = LocalDotPalette.current
     val context = LocalContext.current
@@ -249,6 +254,8 @@ fun ChatScreen(
                 activeChat = activeChat,
                 onSwitchDot = onSwitchDot,
                 speakingName = state.speakingName,
+                onOpenAgents = onOpenAgents,
+                otherAgentsUnread = otherAgentsUnread,
             )
             BrowsingPill(
                 visible = browsing && screen.hasFrame,
@@ -308,6 +315,8 @@ private fun ChatHeader(
     activeChat: String = MAIN_CHAT,
     onSwitchDot: (String) -> Unit = {},
     speakingName: String? = null,
+    onOpenAgents: (() -> Unit)? = null,
+    otherAgentsUnread: Int = 0,
 ) {
     val palette = LocalDotPalette.current
     Column(
@@ -335,7 +344,26 @@ private fun ChatHeader(
             } else {
                 ClayDot(palette, Modifier.size(68.dp), mood = activity.toMood(), accessory = appearance.accessory, species = appearance.species)
             }
-            Text(name, style = MaterialTheme.typography.titleSmall, color = Ink.Primary)
+            if (onOpenAgents == null) {
+                Text(name, style = MaterialTheme.typography.titleSmall, color = Ink.Primary)
+            } else {
+                // Changer d'agent (un autre profil Hermes) : par le nom, à part de la mascotte et du « … »,
+                // qui restent ceux des dots de l'agent affiché.
+                val switchLabel = stringResource(R.string.cd_switch_agent)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClickLabel = switchLabel, onClick = onOpenAgents)
+                        .padding(start = 8.dp, end = 2.dp),
+                ) {
+                    Text(name, style = MaterialTheme.typography.titleSmall, color = Ink.Primary)
+                    Icon(Icons.Rounded.ExpandMore, switchLabel, tint = Ink.Secondary, modifier = Modifier.size(18.dp))
+                    if (otherAgentsUnread > 0) {
+                        Box(Modifier.size(8.dp).background(Ink.Danger, CircleShape))
+                    }
+                }
+            }
             AnimatedContent(
                 // En plein débat, l'en-tête annonce qui a la parole ; le dot de la conversation reste au centre.
                 targetState = speakingName?.let { stringResource(R.string.room_speaking, it) } ?: activity.statusLabel(),

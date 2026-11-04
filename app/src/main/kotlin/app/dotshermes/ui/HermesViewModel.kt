@@ -3,8 +3,10 @@ package app.dotshermes.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.dotshermes.BuildConfig
-import app.dotshermes.data.ChatRepository
-import app.dotshermes.data.GatewayConfigStore
+import app.dotshermes.data.AgentRegistry
+import app.dotshermes.data.AgentSummary
+import app.dotshermes.data.RoutingChatRepository
+import app.dotshermes.data.AgentStore
 import app.dotshermes.data.model.AgentActivity
 import app.dotshermes.data.model.AgentProfile
 import app.dotshermes.data.model.ConnectionState
@@ -70,9 +72,9 @@ private data class RoomInfo(val invited: List<SubDot>, val candidates: List<SubD
 private val DoneWords = listOf("fait", "done", "finished")
 
 class HermesViewModel(
-    private val repository: ChatRepository,
-    private val appearanceStore: AppearanceStore,
-    private val configStore: GatewayConfigStore,
+    /** L'agent affiché (ou la démo) : toutes les actions de l'écran passent par lui. */
+    private val repository: RoutingChatRepository,
+    private val agents: AgentRegistry,
     private val recorder: VoiceRecorder,
     private val player: VoicePlayer,
     private val attachments: Attachments,
@@ -99,19 +101,49 @@ class HermesViewModel(
     val recording: StateFlow<RecordingState?> = recorder.state
     val playback: StateFlow<Playback> = player.state
 
-    /** Adresse proposée sur l'écran d'appairage : la dernière utilisée, sinon le serveur Hermes. */
-    val initialGatewayUrl: String = configStore.load()?.url ?: DEFAULT_GATEWAY_URL
-
     init {
-        // Appairage mémorisé : on se reconnecte directement au lancement.
-        configStore.load()?.let { saved ->
-            if (repository.connection.value == ConnectionState.Disconnected) connect(saved.url, saved.token)
-        }
+        // Agents mémorisés : chacun se reconnecte au lancement, en parallèle.
+        agents.connectAll()
     }
 
     val connection: StateFlow<ConnectionState> = repository.connection
     val profile: StateFlow<AgentProfile> = repository.profile
-    val appearance: StateFlow<DotAppearance> = appearanceStore.state
+    /** Apparence de l'agent affiché (son dot principal) ; le thème est commun à tous. */
+    val appearance: StateFlow<DotAppearance> = agents.activeAppearance
+
+    // -- Agents ----------------------------------------------------------------------------------
+
+    /** Les agents appairés, pour le sélecteur (affiché à partir de deux). */
+    val agentList: StateFlow<List<AgentSummary>> = agents.summaries
+    val activeAgent: StateFlow<String?> = agents.activeId
+    /** Un agent est en cours d'ajout : l'écran d'appairage propose d'annuler. */
+    val addingAgent: StateFlow<Boolean> = agents.pending.map { it != null }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, agents.pending.value != null)
+
+    /** Non-lus des autres agents : la pastille de l'en-tête les compte avec ceux des sous-dots. */
+    val otherAgentsUnread: StateFlow<Int> = combine(agents.summaries, agents.activeId) { all, active ->
+        all.filter { it.id != active }.sumOf { it.unread }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * Adresse proposée sur l'écran d'appairage : celle de l'agent affiché ; pour un agent de plus,
+     * celle de l'agent d'avant (souvent le même domaine, une autre route) ; sinon le serveur par défaut.
+     */
+    fun gatewayUrlHint(): String {
+        val links = agents.store.agents.value
+        return agents.activeId.value?.let(agents.store::get)?.url
+            ?: links.lastOrNull()?.url
+            ?: DEFAULT_GATEWAY_URL
+    }
+
+    fun selectAgent(id: String) = agents.select(id)
+
+    fun addAgent() {
+        repository.leaveDemo()
+        agents.beginAdd()
+    }
+
+    fun cancelAddAgent() = agents.cancelAdd()
 
     val dots: StateFlow<List<SubDot>> = repository.dots
     val activeChat: StateFlow<String> = repository.activeChat
@@ -119,12 +151,12 @@ class HermesViewModel(
     val unread: StateFlow<Map<String, Int>> = repository.unread
 
     val activeLook: StateFlow<ActiveLook> =
-        combine(appearanceStore.state, repository.dots, repository.activeChat) { main, dots, chat ->
+        combine(appearance, repository.dots, repository.activeChat) { main, dots, chat ->
             val dot = dots.firstOrNull { it.id == chat }
             ActiveLook(dot?.appearance(main) ?: main, dot)
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, ActiveLook(appearanceStore.state.value, null))
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, ActiveLook(appearance.value, null))
 
-    private val roomInfo = combine(repository.room, repository.speaker, repository.dots, repository.activeChat, appearanceStore.state) { invited, speaker, dots, chat, main ->
+    private val roomInfo = combine(repository.room, repository.speaker, repository.dots, repository.activeChat, appearance) { invited, speaker, dots, chat, main ->
         val byId = dots.associateBy { it.id }
         RoomInfo(
             invited = invited.mapNotNull(byId::get),
@@ -157,18 +189,34 @@ class HermesViewModel(
     /** Salon de groupe de la conversation affichée : ces sous-dots débattront de chaque message (vide : fermé). */
     fun setRoom(dots: List<String>) = repository.setRoom(dots)
 
+    /**
+     * Appairage depuis l'écran de connexion : la démo ; un agent de plus (ou le premier) ; ou un
+     * nouvel appairage de l'agent affiché (jeton changé), qui garde ses conversations et ses réglages.
+     */
     fun connect(url: String, token: String) {
         val config = GatewayConfig(url.trim(), token.trim())
         viewModelScope.launch {
-            repository.connect(config)
-            if (!config.isDemo && repository.connection.value is ConnectionState.Connected) configStore.save(config)
+            if (config.isDemo) {
+                repository.connect(config)
+                return@launch
+            }
+            repository.leaveDemo()
+            val active = agents.activeId.value
+            if (agents.pending.value != null || active == null || agents.store.get(active) == null) agents.connectNew(config)
+            else agents.reconnect(active, config)
         }
     }
 
-    /** Déconnexion volontaire : on oublie aussi l'appairage pour ne pas se reconnecter au lancement. */
+    /**
+     * Déconnexion volontaire : on quitte la démo, ou on oublie l'agent affiché (jeton, apparence) pour
+     * ne pas s'y reconnecter au lancement. Les autres agents ne sont pas touchés ; le suivant s'affiche.
+     */
     fun disconnect() {
-        configStore.clear()
-        repository.disconnect()
+        if (repository.isDemo) {
+            repository.leaveDemo()
+            return
+        }
+        agents.activeId.value?.let(agents::remove)
     }
 
     fun send(text: String) {
@@ -266,15 +314,18 @@ class HermesViewModel(
 
     fun answerClarify(messageId: String, response: String) = repository.answerClarify(messageId, response)
 
-    fun setPalette(palette: DotPalette) = appearanceStore.setPalette(palette)
+    /** Réglages du dot principal de l'agent affiché : chaque agent a son nom, sa mascotte, sa couleur. */
+    private val activeStore get() = agents.appearance(agents.activeId.value ?: AgentStore.PRIMARY_ID)
 
-    fun setAgentName(name: String) = appearanceStore.setName(name)
+    fun setPalette(palette: DotPalette) = activeStore.setPalette(palette)
 
-    fun setSpecies(species: DotSpecies) = appearanceStore.setSpecies(species)
+    fun setAgentName(name: String) = activeStore.setName(name)
 
-    fun setTheme(theme: ThemeMode) = appearanceStore.setTheme(theme)
+    fun setSpecies(species: DotSpecies) = activeStore.setSpecies(species)
 
-    fun setAccessory(accessory: DotAccessory) = appearanceStore.setAccessory(accessory)
+    fun setTheme(theme: ThemeMode) = agents.theme.setTheme(theme)
+
+    fun setAccessory(accessory: DotAccessory) = activeStore.setAccessory(accessory)
 
     private companion object {
         /** Fixée à la construction (variable DEFAULT_GATEWAY_URL) ; vide par défaut. */

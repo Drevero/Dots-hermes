@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- WebSocket vers le gateway Hermes. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -12,6 +13,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Mises à jour depuis les releases GitHub : Android demande l'accord une fois (« sources inconnues »). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Google Analytics ajoute l'identifiant publicitaire : inutile ici, on le retire. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
     <application
         android:name=".HermesApplication"
@@ -22,6 +25,12 @@
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.DotsHermes">
+
+        <!-- Google Analytics : pas d'identifiant publicitaire ni de personnalisation des annonces ;
+             les écrans sont signalés à la main (une seule activité Compose, cf. analytics/Analytics.kt). -->
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+        <meta-data android:name="google_analytics_default_allow_ad_personalization_signals" android:value="false" />
+        <meta-data android:name="google_analytics_automatic_screen_reporting_enabled" android:value="false" />
 
         <activity
             android:name=".MainActivity"

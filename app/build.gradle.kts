@@ -1,8 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    // Firebase (notifications push) : appliqué seulement si app/google-services.json est présent,
-    // pour que le dépôt se construise tel quel (CI, contributeurs) — le push est alors désactivé.
+    // Firebase (notifications push, statistiques d'usage) : appliqué seulement si app/google-services.json est présent,
+    // pour que le dépôt se construise tel quel (CI, contributeurs) — le push et les statistiques sont alors désactivés.
     alias(libs.plugins.google.services) apply false
 }
 
@@ -88,6 +88,8 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // Statistiques d'usage (Google Analytics) : inactives, comme le push, sans google-services.json.
+    implementation(libs.firebase.analytics)
     // Appairage de l'app web : lecture du QR code du navigateur (modèle ML Kit embarqué, sans Play Services).
     implementation(libs.camerax.camera2)
     implementation(libs.camerax.lifecycle)

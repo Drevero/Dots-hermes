@@ -31,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.dotshermes.AppContainer
 import app.dotshermes.data.model.ConnectionState
 import app.dotshermes.ui.agent.AgentSettings
+import app.dotshermes.analytics.Analytics
 import app.dotshermes.ui.chat.ChatScreen
 import app.dotshermes.ui.chat.VoiceControls
 import app.dotshermes.ui.chat.AttachmentControls
@@ -120,6 +121,20 @@ fun HermesApp(
         if (waiting != null && updater.canInstall()) scope.launch { updater.install(waiting.release) }
         onPauseOrDispose { }
     }
+
+    // Statistiques d'usage : l'écran au premier plan (le plus haut des panneaux ouverts).
+    val analyticsScreen = when {
+        webPairOpen -> "web_pair"
+        screenOpen -> "live_screen"
+        activityOpen -> "activity"
+        webSessionsOpen -> "web_sessions"
+        agentSheetOpen -> if (creatingDot || look.subDot != null) "dot_editor" else "agent_settings"
+        agentMenuOpen -> "agent_menu"
+        connection !is ConnectionState.Connected -> "connect"
+        demo -> "demo_chat"
+        else -> "chat"
+    }
+    LaunchedEffect(analyticsScreen) { Analytics.screen(context, analyticsScreen) }
 
     val dark = when (appearance.theme) {
         ThemeMode.System -> isSystemInDarkTheme()

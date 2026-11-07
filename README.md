@@ -467,6 +467,13 @@ The gateway only pushes when no connected app is in the foreground.
 > An APK built with your `google-services.json` only receives notifications sent with *your* service
 > account: each person who builds the app needs their own Firebase project.
 
+**Usage analytics.** The same `google-services.json` also turns on **Google Analytics** for the
+Firebase project: active users (including the *Realtime* report) and the screens they open. Only
+fixed screen names are sent (`chat`, `connect`, `activity`, `web_pair`…), never a message, an agent
+name or a gateway address; the advertising ID is not collected. To see the data, enable Google
+Analytics in *Firebase console → Project settings → Integrations*. An APK built without
+`google-services.json` sends nothing.
+
 ---
 
 ## Optional: voice notes

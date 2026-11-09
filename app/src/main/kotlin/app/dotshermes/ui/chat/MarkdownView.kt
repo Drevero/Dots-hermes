@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckBox
@@ -27,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,8 +57,16 @@ fun MarkdownText(text: String, ink: Color, link: Color, modifier: Modifier = Mod
     val blocks = remember(text) { parseMarkdown(text) }
     val colors = MdColors(ink, link, ink.copy(alpha = 0.09f))
     val body = MaterialTheme.typography.bodyLarge.copy(color = ink)
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        blocks.forEach { block -> Block(block, colors, body) }
+    // Les couleurs de sélection suivent le thème pour rester lisibles en thème sombre.
+    // (Le SelectionContainer lui-même est posé par l'appelant, autour de la bulle.)
+    val selectionColors = TextSelectionColors(
+        handleColor = link,
+        backgroundColor = ink.copy(alpha = 0.28f),
+    )
+    CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            blocks.forEach { block -> Block(block, colors, body) }
+        }
     }
 }
 

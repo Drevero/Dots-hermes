@@ -14,6 +14,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +46,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -137,29 +150,71 @@ private fun TextBubble(
     }
     val reactions = message.reactions.values.distinct()
 
+    // Largeur de la bulle : 296.dp sur téléphone, mais on laisse respirer les grands
+    // écrans (tablette, paysage) au lieu de garder une colonne étroite au milieu.
+    // LocalConfiguration plutôt que BoxWithConstraints : ici on veut la largeur de l'écran,
+    // pas la largeur de la bulle, et surtout ne pas toucher à l'alignement Start/End
+    // de la Column parente (une bulle fillMaxWidth() casserait l'alignement à droite).
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+    val bubbleMaxWidth = if (screenWidthDp < 600.dp) 296.dp else (screenWidthDp * 0.72f).coerceIn(296.dp, 720.dp)
+
+    // Séparation des gestes : l'appui long SUR le texte sélectionne (menu Copier),
+    // l'appui long HORS texte ouvre le picker de réactions. Il faut donc savoir où
+    // tombe le doigt : on relève la zone de texte et l'origine de la bulle en
+    // coordonnées racine, puis on compare au point touché.
+    var textBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
+    var bubbleOriginInRoot by remember { mutableStateOf(Offset.Zero) }
+
     Box {
         Box(
             modifier = Modifier
                 .padding(top = if (reactions.isNotEmpty()) 16.dp else 0.dp)
-                .widthIn(max = 296.dp)
+                .widthIn(max = bubbleMaxWidth)
                 .clip(shape)
                 .background(if (fromUser) palette.base else Ink.AgentBubble)
+                .onGloballyPositioned { bubbleOriginInRoot = it.positionInRoot() }
+                // combinedClickable SANS onLongClick : c'était lui qui volait l'appui long
+                // au SelectionContainer (le picker d'émojis s'ouvrait au lieu du sélecteur).
                 .combinedClickable(
                     onClick = {},
                     onDoubleClick = { onReact("❤️") },
-                    onLongClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        pickerOpen = true
-                    },
                 )
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val press = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            try {
+                                awaitLongPressOrCancellation(down.id)
+                            } catch (e: PointerEventTimeoutCancellationException) {
+                                null
+                            }
+                        }
+                        if (press != null) {
+                            val rootPoint = bubbleOriginInRoot + press.position
+                            val onText = textBoundsInRoot?.contains(rootPoint) == true
+                            if (!onText) {
+                                // Hors du texte : c'est le geste « réactions ».
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                pickerOpen = true
+                                press.consume()
+                            }
+                            // Sur le texte : on ne consomme PAS, pour laisser
+                            // SelectionContainer détecter l'appui long et afficher le menu Copier.
+                        }
+                    }
+                }
                 .padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             val ink = if (fromUser) palette.onBase else Ink.Primary
             // L'utilisateur tape du texte simple ; l'agent répond en markdown complet.
-            if (fromUser) {
-                Text(text, style = MaterialTheme.typography.bodyLarge, color = ink)
-            } else {
-                MarkdownText(text, ink = ink, link = palette.deep)
+            SelectionContainer {
+                Box(Modifier.onGloballyPositioned { textBoundsInRoot = it.boundsInRoot() }) {
+                    if (fromUser) {
+                        Text(text, style = MaterialTheme.typography.bodyLarge, color = ink)
+                    } else {
+                        MarkdownText(text, ink = ink, link = palette.deep)
+                    }
+                }
             }
         }
         if (reactions.isNotEmpty()) {
